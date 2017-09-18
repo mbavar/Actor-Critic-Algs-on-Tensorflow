@@ -3,50 +3,28 @@ import numpy as np
 import gym
 import util as U
 import argparse
-from scipy import signal
+
+#Change range stuff
 
 xavier = tf.contrib.layers.xavier_initializer()
 SCALE = 0.1
 def xav(*t):
     return SCALE * xavier(*t)
 
-def variable_summaries(var, name=''):
-  """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
-  with tf.name_scope(name+'summaries'):
-    mean = tf.reduce_mean(var)
-    tf.summary.scalar('mean', mean)
-    with tf.name_scope('stddev'):
-      stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-    tf.summary.scalar('stddev', stddev)
-    tf.summary.scalar('max', tf.reduce_max(var))
-    tf.summary.scalar('min', tf.reduce_min(var))
-    #tf.summary.histogram('histogram', var)
-
-def discount(x, gamma):
-    ret = np.array(signal.lfilter([1],[1,-gamma],x[::-1], axis=0)[::-1])
-    return ret
-
 def lrelu(x, alpha=0.2):
     return (1-alpha) * tf.nn.relu(x) + alpha * x
 
 
-def dense(name, inp, in_dim, out_dim, activation=None, initializer=xavier, summary=True):
+def dense(name, inp, in_dim, out_dim, activation=None, initializer=xavier):
     W = tf.get_variable(shape=[in_dim, out_dim], initializer=xavier, name=name+'weight', dtype=tf.float32)
     b = tf.get_variable(initializer= tf.constant([0.0]*out_dim), name=name+'bias', dtype=tf.float32)
-    if summary:
-        variable_summaries(W, name+'weight')
-        variable_summaries(b, name+'bias')
     if activation is not None:
         return activation(tf.matmul(inp, W) + b)
     else:
         return tf.matmul(inp, W) + b
 
 def var_accounted_for(target, pred):
-    #return 1- np.var(target-pred)/ (np.var(target)+1e-8) 
-    pred = pred.reshape(-1)
-    target = target /  np.sqrt(np.sum(np.square(target)))
-    pred = pred/  np.sqrt(np.sum(np.square(pred)))
-    return np.sum(target * pred)
+    return 1- np.var(target-pred)/ (np.var(target)+1e-8) 
 
 class Actor(object):
     def __init__(self, num_ob_feat, num_ac, init_lr = 0.005, init_beta = 1, 
@@ -111,7 +89,6 @@ class Actor(object):
 
 class Critic(object):
     def __init__(self, num_ob_feat, init_lr=0.005, ac_scale=2.0, ob_scale=[1.0/np.sqrt(3), 1.0/np.sqrt(3), 8.0/np.sqrt(3)]):
-        num_ob_feat = (num_ob_feat+1) * 2
         with tf.variable_scope('Critic'):
             obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             x = dense(name='first_layer', inp=obs,  activation= tf.nn.relu, in_dim=num_ob_feat, out_dim=64)
@@ -185,27 +162,15 @@ def rollout(env, sess, policy, max_path_length=100, render=False):
     return path
 
 
-def ob_feature_augment(obs_path):
-    obs_path = np.array(obs_path)
-    obs2 = obs_path ** 2
-    l = len(obs_path)
-    time = np.arange(l, dtype=np.float32).reshape(-1,1) / (l-1)
-    time2 = time ** 2
-    time = time * 2 - 1
-    return list(np.concatenate([obs_path, obs2, time, time2], axis=1))
-
 
 def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
-    #perm = np.random.permutation(n)
-    #obs = obs[perm]
-    #targets = targets[perm]
-    #targets = targets.reshape(-1)
+    perm = np.random.permutation(n)
+    obs = obs[perm]
+    targets = targets[perm]
     pre_preds = critic.value(obs, sess=sess)
     ev_before = var_accounted_for(targets, pre_preds)
-    #print(np.mean(targets), np.mean(pre_preds))
-    #ev_before = var_accounted_for(targets, targets)
     tot_loss = 0.0
     l = int(repeat*len(obs)/n+1)
     for i in range(l):
@@ -215,7 +180,6 @@ def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
         tot_loss += loss
     post_preds = critic.value(obs, sess=sess)
     ev_after = var_accounted_for(targets, post_preds)
-    print(ev_before, ev_after)
     return tot_loss/ l, ev_before, ev_after
 
 
@@ -242,7 +206,6 @@ parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFo
 parser.add_argument("--outdir", default='log.txt')
 parser.add_argument("--animate", default=False, action='store_true')
 args = parser.parse_args()
-TB = args.outdir != 'log.txt'
 LOG_FILE = args.outdir
 ANIMATE = args.animate
 ROLLS_PER_EPISODE = 10
@@ -260,49 +223,32 @@ critic = Critic(num_ob_feat=ob_dim)
 rew_to_advs =  PathAdv(gamma=0.97, look_ahead=30)
 logger = U.Logger(logfile=LOG_FILE)
 
-
-
-merged = tf.summary.merge_all()
-writer = tf.summary.FileWriter('./summaries/'+args.outdir.split('.')[0], tf.get_default_graph())
-
-#all_vars = tf.trainable_variables()
-#u = [v for v in all_vars if 'Critic' in v.name]
-
-
 with tf.Session() as sess:
     sess.run(tf.initialize_all_variables())
     for i in range(ITER):
         ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
-        ep_unproc_obs = []
         ep_rews = []
         tot_rews = 0
         for j in range(ROLLS_PER_EPISODE):
             path = rollout(env=env, sess= sess, policy=actor.act, 
                            max_path_length=MAX_PATH_LENGTH, 
                            render=j ==0 and  i % 20 == 0 and ANIMATE)
-            obs_aug = ob_feature_augment(path['obs'])
-            ep_unproc_obs += path['obs'][:-1]
-            ep_obs += obs_aug[:-1]
+            ep_obs += path['obs'][:-1]
             ep_logps += path['logps']
             ep_acs += path['acs']
-            obs_vals = critic.value(obs=obs_aug, sess=sess).reshape(-1)
-            #target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terimanted'], vals=obs_vals)
-            target_val = discount(path['rews'], gamma=0.97)
-            advs = target_val - obs_vals[:-1]
-            ep_target_vals += list(target_val)
-            ep_advs += list(advs)
+            obs_vals = critic.value(obs=path['obs'], sess=sess)
+            target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terimanted'], vals=obs_vals)
+            ep_target_vals += target_val
+            ep_advs += advs
             ep_rews += path['rews']
             tot_rews += sum(path['rews'])
-
             if j ==0 and i%10 ==0:
                 actor.printoo(obs=path['obs'], sess=sess)
-                critic.printoo(obs=obs_aug, sess=sess)
+                critic.printoo(obs=path['obs'], sess=sess)
 
         avg_rew = float(tot_rews)/ ROLLS_PER_EPISODE  
-        ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs, ep_rews, ep_unproc_obs = U.make_np(ep_obs, ep_advs, ep_logps, 
-                                                                                ep_target_vals, ep_acs, ep_rews, ep_unproc_obs)
-        ep_advs.reshape(-1)
-        ep_target_vals.reshape(-1)
+        ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs, ep_rews = U.make_np(ep_obs, ep_advs, ep_logps, 
+                                                                                ep_target_vals, ep_acs, ep_rews)
         ep_advs = (ep_advs - np.mean(ep_advs))/ (1e-8+ np.std(ep_advs))
         """
         if i%10 ==0:
@@ -319,13 +265,10 @@ with tf.Session() as sess:
         # For now we forget about adjusting beta and gamma and stuff
         cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
         act_loss1, act_loss2, act_loss_full = train_actor(actor=actor, sess=sess, 
-                                                         batch_size=BATCH, repeat=MULT, obs=ep_unproc_obs, 
+                                                         batch_size=BATCH, repeat=MULT, obs=ep_obs, 
                                                           advs=ep_advs, acs=ep_acs, logps=ep_logps)
-        if TB:
-            summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_unproc_obs[:1000], critic.obs:ep_obs[:1000]})
-            writer.add_summary(summ,i)
         #logz
-        logger(i, act_loss1=act_loss1, act_loss2=act_loss2,  act_loss_full=act_loss_full, circ_loss=np.sqrt(cir_loss), 
+        logger(i, act_loss1=act_loss1, act_loss2=act_loss2,  act_loss_full=act_loss_full, circ_loss=cir_loss, 
                 avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
         if i % 100 == 50:
             logger.write()

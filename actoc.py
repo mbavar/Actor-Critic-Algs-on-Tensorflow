@@ -9,6 +9,8 @@ SCALE = 0.1
 def xav(*t):
     return SCALE * xavier(*t)
 
+def lrelu(x, alpha=0.2):
+    return (1-alpha) * tf.nn.relu(x) + alpha * x
 
 def dense(name, inp, in_dim, out_dim, activation=None, initializer=xavier):
     W = tf.get_variable(shape=[in_dim, out_dim], initializer=xavier, name=name+'weight')
@@ -24,21 +26,22 @@ class Actor(object):
         
         ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
         #code for sampling a new action
-        x = dense(name='first_layer', inp=ob, in_dim=num_ob_feat, out_dim=64, activation=tf.nn.relu)
-        x1 = dense(name='second_layer', inp=x, in_dim=64, out_dim=32, activation=tf.nn.relu)
-        mu = dense(name='third_layer', inp=x1, in_dim=32, out_dim=num_ac, initializer=xav)
+        x = dense(name='first_layer', inp=ob, in_dim=num_ob_feat, out_dim=128, activation=tf.nn.relu)
+        x1 = dense(name='second_layer', inp=x, in_dim=128, out_dim=128, activation=tf.nn.relu)
+        x2 = dense(name='third_layer', inp=x1, in_dim=128, out_dim=64, activation=tf.nn.relu)
+        mu = dense(name='mu_layer', inp=x2, in_dim=64, out_dim=num_ac, initializer=xav)
         #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
         log_std = tf.Variable(initial_value=tf.constant([0.0]* num_ac), name='log_std',)
         
         # Think about action range issue and obs range.
         std = tf.exp(log_std)+ 1e-8
         ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
-        logp =  tf.reduce_sum(- tf.square((ac - mu)/std)/2.0 - log_std, axis=1)
+        logp =  tf.reduce_sum(- tf.square((ac - mu)/std)/2.0, axis=1)- tf.reduce_sum(log_std)
         self.ac, self.logp, self.ob = ac, logp, ob
         #code for computing reward loss given the advantage of each action
         adv = tf.placeholder(shape=[None], dtype=tf.float32)
         ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)
-        logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (ac_hist - mu) / std)/2.0 - log_std, axis=1)
+        logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (ac_hist - mu) / std)/2.0, axis=1) - tf.reduce_sum(log_std)
         rew_loss = -tf.reduce_mean(adv * logp_newpolicy_oldac)
         self.rew_loss, self.adv, self.ac_hist = rew_loss, adv, ac_hist 
         #some measure of distance between new and old policy
@@ -54,7 +57,7 @@ class Actor(object):
         #Debugging stuff
         self.printer = tf.constant(0.0) 
         self.printer = tf.Print(self.printer, data=['Actor Data', tf.reduce_mean(std), tf.reduce_mean(logp), tf.nn.moments(ac, axes=[0,1])])
-        self.printer = tf.Print(self.printer, data=[tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
+        self.printer = tf.Print(self.printer, data=['Actor Layers', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
 
     def act(self, ob, sess):
         ob = np.array(ob)
@@ -83,17 +86,17 @@ class Critic(object):
     def __init__(self, num_ob_feat, init_lr=0.005, ac_scale=2.0, ob_scale=[1.0/np.sqrt(3), 1.0/np.sqrt(3), 8.0/np.sqrt(3)]):
         with tf.variable_scope('Critic'):
             obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
-            x = dense(name='first_layer', inp=obs,  activation= tf.nn.relu, in_dim=num_ob_feat, out_dim=32)
-            x1 = dense(name='second_layer', inp=x, activation= tf.nn.relu, in_dim=32, out_dim=16)
-            v = dense(name='value', inp=x1, initializer=xav, in_dim=16, out_dim=1)
+            x = dense(name='first_layer', inp=obs,  activation= tf.nn.relu, in_dim=num_ob_feat, out_dim=128)
+            x1 = dense(name='second_layer', inp=x, activation= tf.nn.relu, in_dim=128, out_dim=64)
+            v = dense(name='value', inp=x1, initializer=xav, in_dim=64, out_dim=1)
             v_ = tf.placeholder(shape=[None], dtype=tf.float32)
             self.loss = tf.reduce_mean(tf.square(v-v_))
             self.v, self.v_, self.obs =  v, v_, obs
-        #optimization parts
+            #optimization parts
             self.lr = tf.Variable(initial_value=init_lr,dtype=tf.float32, trainable=False)
             self.opt = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
             self.printer = tf.constant(0.0)    
-            self.printer = tf.Print(self.printer, data=[tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
+            self.printer = tf.Print(self.printer, data=['Critic', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
         
     def value(self, obs, sess):
         return sess.run(self.v, feed_dict={self.obs:obs})
@@ -192,17 +195,16 @@ def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
     return (tot_rew_loss/l, tot_p_dist/l, tot_comb_loss/l)
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("--outdir")
+parser.add_argument("--outdir", default='log.txt')
+parser.add_argument("--animate", default=False, action='store_true')
 args = parser.parse_args()
-LOG_FILE = 'log.txt'
-if args.outdir != None:
-    LOG_FILE = args.outdir
-ROLLS_PER_EPISODE = 10
-MAX_PATH_LENGTH = 800
+LOG_FILE = args.outdir
+ANIMATE = args.animate
+ROLLS_PER_EPISODE = 20
+MAX_PATH_LENGTH = 200
 ITER = 100000
 BATCH = 32
 MULT = 5
-ANIMATE = True
 LOG_ROUND = 10
 
 env = gym.make('Pendulum-v0')
@@ -233,24 +235,22 @@ with tf.Session() as sess:
             ep_advs += advs
             ep_rews += path['rews']
             tot_rews += sum(path['rews'])
-            """
             if j ==0 and i%10 ==0:
                 actor.printoo(obs=path['obs'], sess=sess)
                 critic.printoo(obs=path['obs'], sess=sess)
-            """
 
         avg_rew = float(tot_rews)/ ROLLS_PER_EPISODE  
         ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs, ep_rews = U.make_np(ep_obs, ep_advs, ep_logps, 
                                                                                 ep_target_vals, ep_acs, ep_rews)
         ep_advs = (ep_advs - np.mean(ep_advs)) / (np.std(ep_advs)+1e-8)
         """
-        if i % 50 == 13:
+  
+        if i % 20 == 0:
             perm = np.random.choice(len(ep_advs), size=20)
-            print('Some obs', ep_obs[perm])
-            print('Some acs', ep_obs[perm])
-            print('Some advs', ep_obs[perm])
-            print('Some rews', ep_rews[perm])
+            print('Some advs', ep_obs[-200:])
+            print('Some rews', ep_rews[-200:])
         """
+ 
         # Do EVBefore and EVAFTER
         # correct np.std code
         # For now we forget about adjusting beta and gamma and stuff

@@ -42,11 +42,13 @@ def dense(name, inp, in_dim, out_dim, activation=None, initializer=xavier, summa
         return tf.matmul(inp, W) + b
 
 def var_accounted_for(target, pred):
-    #return 1- np.var(target-pred)/ (np.var(target)+1e-8) 
     pred = pred.reshape(-1)
-    target = target /  np.sqrt(np.sum(np.square(target)))
-    pred = pred/  np.sqrt(np.sum(np.square(pred)))
-    return np.sum(target * pred)
+    target = target.reshape(-1)
+    return 1- (np.var(target-pred)/ (np.var(target)+1e-8))
+    
+    #target = target /  np.sqrt(np.sum(np.square(target)))
+    #pred = pred/  np.sqrt(np.sum(np.square(pred)))
+    #return np.sum(target * pred)
 
 class Actor(object):
     def __init__(self, num_ob_feat, num_ac, init_lr = 0.005, init_beta = 1, 
@@ -142,7 +144,7 @@ class Critic(object):
 
 
 class PathAdv(object):
-    def __init__(self, gamma=0.98, look_ahead=40):
+    def __init__(self, gamma=0.98, look_ahead=30):
         self.reset(gamma, look_ahead)
     
     def __call__(self, rews, vals, terminal):
@@ -215,7 +217,7 @@ def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
         tot_loss += loss
     post_preds = critic.value(obs, sess=sess)
     ev_after = var_accounted_for(targets, post_preds)
-    print(ev_before, ev_after)
+    #print(ev_before, ev_after)
     return tot_loss/ l, ev_before, ev_after
 
 
@@ -246,7 +248,7 @@ TB = args.outdir != 'log.txt'
 LOG_FILE = args.outdir
 ANIMATE = args.animate
 ROLLS_PER_EPISODE = 10
-MAX_PATH_LENGTH = 200
+MAX_PATH_LENGTH = 800
 ITER = 100000
 BATCH = 32
 MULT = 5
@@ -257,7 +259,7 @@ ob_dim = env.observation_space.shape[0]
 ac_dim = env.action_space.shape[0]
 actor = Actor(num_ac=ac_dim, num_ob_feat=ob_dim)
 critic = Critic(num_ob_feat=ob_dim)
-rew_to_advs =  PathAdv(gamma=0.97, look_ahead=30)
+rew_to_advs =  PathAdv(gamma=0.97, look_ahead=5)
 logger = U.Logger(logfile=LOG_FILE)
 
 
@@ -286,17 +288,17 @@ with tf.Session() as sess:
             ep_logps += path['logps']
             ep_acs += path['acs']
             obs_vals = critic.value(obs=obs_aug, sess=sess).reshape(-1)
-            #target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terimanted'], vals=obs_vals)
-            target_val = discount(path['rews'], gamma=0.97)
-            advs = target_val - obs_vals[:-1]
+            target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terimanted'], vals=obs_vals)
+            #target_val = discount(path['rews'], gamma=0.97)
+            #advs = target_val - obs_vals[:-1]
             ep_target_vals += list(target_val)
             ep_advs += list(advs)
             ep_rews += path['rews']
             tot_rews += sum(path['rews'])
 
-            if j ==0 and i%10 ==0:
-                actor.printoo(obs=path['obs'], sess=sess)
-                critic.printoo(obs=obs_aug, sess=sess)
+            #if j ==0 and i%10 ==0:
+                #actor.printoo(obs=path['obs'], sess=sess)
+                #critic.printoo(obs=obs_aug, sess=sess)
 
         avg_rew = float(tot_rews)/ ROLLS_PER_EPISODE  
         ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs, ep_rews, ep_unproc_obs = U.make_np(ep_obs, ep_advs, ep_logps, 
