@@ -101,11 +101,13 @@ def sync_local_to_global(local_scope, global_scope):
     local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=local_scope)
     global_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=global_scope)
     for v_l, v_g in zip(local_vars, global_vars):
-        print(v_l, v_g)
+        tf.assign(v_l, v_g)
+    return 
 
 
 
-def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
+
+def train_ciritic(local_critic, global_critic, sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
     #perm = np.random.permutation(n)
@@ -121,7 +123,8 @@ def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
     for i in range(l):
         low = (i* batch_size) % n
         high = min(low+batch_size, n)
-        loss, _= critic.optimize(obs=obs[low:high], targets=targets[low:high],sess=sess)
+        loss, new_grads = local_critic.get_grads(obs=obs[low:high], targets=targets[low:high],sess=sess)
+        global_critic.update_by_grads()
         tot_loss += loss
     post_preds = critic.value(obs, sess=sess)
     ev_after = var_accounted_for(targets, post_preds)
@@ -184,22 +187,22 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
             global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type) 
 
         sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
+        sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
 
-"""
         #merged = tf.summary.merge_all()
         #writer = tf.summary.FileWriter('./summaries/'+logger.logfile.split('_')[0], tf.get_default_graph())
 
-        with tf.Session() as sess:
-            sess.run(tf.initialize_all_variables())
+        with tf.train.MonitoredTrainingSession(master=server.target,is_chief=is_chief) as sess:
+            #sess.run(tf.initialize_all_variables())
             for i in range(ITER):
                 ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
                 ep_unproc_obs = []
                 ep_rews = []
                 tot_rews, j = 0, 0
                 while len(ep_rews)<EP_LENGTH_STOP:
-                    path = rollout(env=env, sess= sess, policy=actor.act, 
+                    path = rollout(env=env, sess= sess, policy=local_actor.act, 
                                    max_path_length=MAX_PATH_LENGTH, framer=framer,
-                                   render= j==0 and  i % 20 == 0 and animate)
+                                   render= j==0 and  i % 20 == 0 and animate and is_chief)
                     obs_aug = framer.full(path['obs'])
                     ep_obs += obs_aug[:-1]
                     ep_logps += path['logps']
@@ -226,7 +229,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                 ep_advs.reshape(-1)
                 ep_target_vals.reshape(-1)
                 ep_advs = (ep_advs - np.mean(ep_advs))/ (1e-8+ np.std(ep_advs))
-                ""
+                """
                 if i%10 ==0:
                     print('Advantage mean & std {}, {}'.format(np.mean(ep_advs), np.std(ep_advs)))       
                 if i % 50 == 13:
@@ -235,7 +238,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                     print('Some acs', ep_obs[perm])
                     print('Some advs', ep_obs[perm])
                     print('Some rews', ep_rews[perm])
-                ""
+                """
                 
                 cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
                 act_loss1, act_loss2, act_loss_full = train_actor(actor=actor, sess=sess, 
