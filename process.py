@@ -96,6 +96,15 @@ def rollout(env, sess, policy, framer, max_path_length=100, render=False):
     path = {'rews': rews, 'obs':obs, 'acs':acs, 'terminated': done, 'logps':logps}
     return path
 
+
+def sync_local_to_global(local_scope, global_scope):
+    local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=local_scope)
+    global_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=global_scope)
+    for v_l, v_g in zip(local_vars, global_vars):
+        print(v_l, v_g)
+
+
+
 def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
@@ -118,6 +127,7 @@ def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
     ev_after = var_accounted_for(targets, post_preds)
     #print(ev_before, ev_after)
     return tot_loss/ l, ev_before, ev_after
+
 
 
 
@@ -151,27 +161,31 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
         env = gym.make(env_id)
         framer = Framer(frame_num=stack_frames)
         ob_dim = env.observation_space.shape[0] * stack_frames
-        critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
         rew_to_advs =  PathAdv(gamma=gamma, look_ahead=look_ahead)
-        is_cheif = task_id == 0
+        is_chief = task_id == 0
         
         np.random.seed(random_seed)
         env.seed(random_seed)
+        if type(env.action_space) == gym.spaces.discrete.Discrete:
+            act_type = 'disc'
+            ac_dim = env.action_space.n
+        else:
+            act_type = 'cont'
+            ac_dim = env.action_space.shape[0]
+        if is_chief:
+            print('Initilizing chief. Envirnoment action type {}.'.format(act_type))
 
-
+        local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id))
+        local_actor = pol.Actor( num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, name='local_actor_{}'.format(task_id)) 
         with tf.device(tf.train.replica_device_setter(
             worker_device="/job:worker/task:%d" % task_id,
             cluster=cluster)):
+            global_critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
+            global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type) 
 
-        try: 
-            ac_dim = env.action_space.shape[0]
-            actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type='cont')
-            print('Continuous Action Space')
-        except:
-            print('Discrete Action Space')
-            ac_n = env.action_space.n
-            actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_n, act_type='disc')
+        sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
 
+"""
         #merged = tf.summary.merge_all()
         #writer = tf.summary.FileWriter('./summaries/'+logger.logfile.split('_')[0], tf.get_default_graph())
 
@@ -212,7 +226,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                 ep_advs.reshape(-1)
                 ep_target_vals.reshape(-1)
                 ep_advs = (ep_advs - np.mean(ep_advs))/ (1e-8+ np.std(ep_advs))
-                """
+                ""
                 if i%10 ==0:
                     print('Advantage mean & std {}, {}'.format(np.mean(ep_advs), np.std(ep_advs)))       
                 if i % 50 == 13:
@@ -221,7 +235,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                     print('Some acs', ep_obs[perm])
                     print('Some advs', ep_obs[perm])
                     print('Some rews', ep_rews[perm])
-                """
+                ""
                 
                 cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
                 act_loss1, act_loss2, act_loss_full = train_actor(actor=actor, sess=sess, 
@@ -238,7 +252,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
 
 
         del logger
-
+"""
 
 #all_vars = tf.trainable_variables()
 #u = [v for v in all_vars if 'Critic' in v.name]

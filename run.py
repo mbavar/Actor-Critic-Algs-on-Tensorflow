@@ -22,7 +22,7 @@ def main():
     workers = []
     for i in range(args.allworkers):
         workers.append("localhost:{}".format(i+2+INITPORT))
-    CLUSTER['workers'] = workers
+    CLUSTER['worker'] = workers
     LOG_FILE = args.outdir.split('.')[0] + '_{}.'.format(args.task) + args.outdir.split('.')[1]
     RANDOM_SEED = args.seed + args.task
 

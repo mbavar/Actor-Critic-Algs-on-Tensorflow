@@ -51,6 +51,7 @@ def dense(name, inp, in_dim, out_dim, activation=None, initializer=xavier, summa
 class Actor(object):
     def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1, 
                        ac_scaler=ID_FN, ob_scaler=ID_FN, ac_activation=ID_FN):
+        self.name = name
         with tf.variable_scope(name):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             obs_scaled = ob_scaler(self.ob)
@@ -115,6 +116,7 @@ class Actor(object):
 
 class Critic(object):
     def __init__(self, name, num_ob_feat, init_lr=0.005, ob_scaler=ID_FN):
+        self.name = name
         with tf.variable_scope(name):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             obs_scaled = ob_scaler(self.obs)
