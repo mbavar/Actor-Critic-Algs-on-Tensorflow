@@ -1,0 +1,1 @@
+step, avg_rew, ev_before, ev_after, act_loss_1, act_loss_2, act_loss_full, crit_loss 
