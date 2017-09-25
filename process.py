@@ -143,16 +143,17 @@ def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
 def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0.97, look_ahead=30, 
                stack_frames=2, animate=False, TB_log=False):
 
-    #cluster = tf.train.ClusterSpec(cluster)
-    #server = tf.train.Server(cluster, job, task_id,)
-    #if job == 'ps':
-    #    server.join()
-    #else:
+    cluster = tf.train.ClusterSpec(cluster)
+    server = tf.train.Server(cluster, job, task_id,)
+    if job == 'ps':
+        server.join()
+    else:
         env = gym.make(env_id)
         framer = Framer(frame_num=stack_frames)
         ob_dim = env.observation_space.shape[0] * stack_frames
         critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
         rew_to_advs =  PathAdv(gamma=gamma, look_ahead=look_ahead)
+        is_cheif = task_id == 0
         
         np.random.seed(random_seed)
         env.seed(random_seed)
