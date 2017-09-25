@@ -2,10 +2,19 @@ import tensorflow as tf
 import numpy as np
 import gym
 import util as U
-import argparse
+
 from scipy import signal
 
 import Policies1 as pol
+
+ROLLS_PER_EPISODE = 10
+MAX_PATH_LENGTH = 400
+ITER = 100000
+BATCH = 32
+MULT = 5
+LOG_ROUND = 10
+EP_LENGTH_STOP = 2000
+
 
 def discount(x, gamma):
     ret = np.array(signal.lfilter([1],[1,-gamma],x[::-1], axis=0)[::-1])
@@ -87,17 +96,6 @@ def rollout(env, sess, policy, framer, max_path_length=100, render=False):
     path = {'rews': rews, 'obs':obs, 'acs':acs, 'terminated': done, 'logps':logps}
     return path
 
-
-def ob_feature_augment(obs_path):
-    obs_path = np.array(obs_path)
-    obs2 = obs_path ** 2
-    l = len(obs_path)
-    time = np.arange(l, dtype=np.float32).reshape(-1,1) / (l-1)
-    time2 = time ** 2
-    time = time * 2 - 1
-    return list(np.concatenate([obs_path, obs2, time, time2], axis=1))
-
-
 def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
@@ -141,114 +139,104 @@ def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
     
     return (tot_rew_loss/l, tot_p_dist/l, tot_comb_loss/l)
 
-parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("job", choices=["ps", "worker"])
-parser.add_argument("task", dtype=int, )
-parser.add_argument("--outdir", default='log.txt')
-parser.add_argument("--animate", default=False, action='store_true')
-parser.add_argument("--env", default='Pendulum-v0')
-parser.add_argument("--seed", default=12321)
-parser.add_argument("--tboard", default=False)
-args = parser.parse_args()
-LOG_FILE = args.outdir
-ANIMATE = args.animate
-ROLLS_PER_EPISODE = 10
-MAX_PATH_LENGTH = 400
-ITER = 100000
-BATCH = 32
-MULT = 5
-LOG_ROUND = 10
-EP_LENGTH_STOP = 2000
-FRAMES = 2
 
-def ps(cluster, task_id, job):
+def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0.97, look_ahead=30, 
+               stack_frames=2, animate=False, TB_log=False):
 
-    env = gym.make(args.env)
-    framer = Framer(frame_num=FRAMES)
-    ob_dim = env.observation_space.shape[0] * FRAMES
-    critic = pol.Critic(num_ob_feat=ob_dim*2+4)
-    rew_to_advs =  PathAdv(gamma=0.97, look_ahead=30)
-    logger = U.Logger(logfile=LOG_FILE)
-    np.random.seed(args.seed)
-    env.seed(args.seed)
+    #cluster = tf.train.ClusterSpec(cluster)
+    #server = tf.train.Server(cluster, job, task_id,)
+    #if job == 'ps':
+    #    server.join()
+    #else:
+        env = gym.make(env_id)
+        framer = Framer(frame_num=stack_frames)
+        ob_dim = env.observation_space.shape[0] * stack_frames
+        critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
+        rew_to_advs =  PathAdv(gamma=gamma, look_ahead=look_ahead)
+        
+        np.random.seed(random_seed)
+        env.seed(random_seed)
 
 
-    try: 
-        ac_dim = env.action_space.shape[0]
-        actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type='cont')
-        print('Continuous Action Space')
-    except:
-        print('Discrete Action Space')
-        ac_n = env.action_space.n
-        actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_n, act_type='disc')
+        with tf.device(tf.train.replica_device_setter(
+            worker_device="/job:worker/task:%d" % task_id,
+            cluster=cluster)):
 
-    merged = tf.summary.merge_all()
-    writer = tf.summary.FileWriter('./summaries/'+args.outdir.split('.')[0], tf.get_default_graph())
+        try: 
+            ac_dim = env.action_space.shape[0]
+            actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type='cont')
+            print('Continuous Action Space')
+        except:
+            print('Discrete Action Space')
+            ac_n = env.action_space.n
+            actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_n, act_type='disc')
 
-    with tf.Session() as sess:
-        sess.run(tf.initialize_all_variables())
-        for i in range(ITER):
-            ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
-            ep_unproc_obs = []
-            ep_rews = []
-            tot_rews, j = 0, 0
-            while len(ep_rews)<EP_LENGTH_STOP:
-                path = rollout(env=env, sess= sess, policy=actor.act, 
-                               max_path_length=MAX_PATH_LENGTH, framer=framer,
-                               render= j==0 and  i % 20 == 0 and ANIMATE)
-                obs_aug = framer.full(ob_feature_augment(path['obs']))
-                ep_unproc_obs += framer.full(path['obs'][:-1])
-                ep_obs += obs_aug[:-1]
-                ep_logps += path['logps']
-                ep_acs += path['acs']
-                obs_vals = critic.value(obs=obs_aug, sess=sess).reshape(-1)
-                target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terminated'], vals=obs_vals)
-                #target_val = discount(path['rews'], gamma=0.97)
-                #advs = target_val - obs_vals[:-1]
-                ep_target_vals += list(target_val)
-                ep_advs += list(advs)
-                ep_rews += path['rews']
-                tot_rews += sum(path['rews'])
+        #merged = tf.summary.merge_all()
+        #writer = tf.summary.FileWriter('./summaries/'+logger.logfile.split('_')[0], tf.get_default_graph())
 
-                if j ==0 and i%10 ==0:
-                    actor.printoo(obs=ep_unproc_obs, sess=sess)
-                    critic.printoo(obs=ep_obs, sess=sess)
-                    print('Path length %d' % len(path['rews']))
-                    print('Terminated {}'.format(path['terminated']))
-                j +=1
+        with tf.Session() as sess:
+            sess.run(tf.initialize_all_variables())
+            for i in range(ITER):
+                ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
+                ep_unproc_obs = []
+                ep_rews = []
+                tot_rews, j = 0, 0
+                while len(ep_rews)<EP_LENGTH_STOP:
+                    path = rollout(env=env, sess= sess, policy=actor.act, 
+                                   max_path_length=MAX_PATH_LENGTH, framer=framer,
+                                   render= j==0 and  i % 20 == 0 and animate)
+                    obs_aug = framer.full(path['obs'])
+                    ep_obs += obs_aug[:-1]
+                    ep_logps += path['logps']
+                    ep_acs += path['acs']
+                    obs_vals = critic.value(obs=obs_aug, sess=sess).reshape(-1)
+                    target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terminated'], vals=obs_vals)
+                    #target_val = discount(path['rews'], gamma=0.97)
+                    #advs = target_val - obs_vals[:-1]
+                    ep_target_vals += list(target_val)
+                    ep_advs += list(advs)
+                    ep_rews += path['rews']
+                    tot_rews += sum(path['rews'])
 
-            avg_rew = float(tot_rews)/ ROLLS_PER_EPISODE  
-            ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs, ep_rews, ep_unproc_obs = U.make_np(ep_obs, ep_advs, ep_logps, 
-                                                                                    ep_target_vals, ep_acs, ep_rews, ep_unproc_obs)
-            ep_advs.reshape(-1)
-            ep_target_vals.reshape(-1)
-            ep_advs = (ep_advs - np.mean(ep_advs))/ (1e-8+ np.std(ep_advs))
-            """
-            if i%10 ==0:
-                print('Advantage mean & std {}, {}'.format(np.mean(ep_advs), np.std(ep_advs)))       
-            if i % 50 == 13:
-                perm = np.random.choice(len(ep_advs), size=20)
-                print('Some obs', ep_obs[perm])
-                print('Some acs', ep_obs[perm])
-                print('Some advs', ep_obs[perm])
-                print('Some rews', ep_rews[perm])
-            """
-            
-            cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
-            act_loss1, act_loss2, act_loss_full = train_actor(actor=actor, sess=sess, 
-                                                             batch_size=BATCH, repeat=MULT, obs=ep_unproc_obs, 
-                                                              advs=ep_advs, acs=ep_acs, logps=ep_logps)
-            if args.tboard:
-                summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_unproc_obs[:1000], critic.obs:ep_obs[:1000]})
-                writer.add_summary(summ,i)
-            #logz
-            logger(i, act_loss1=act_loss1, act_loss2=act_loss2,  act_loss_full=act_loss_full, circ_loss=np.sqrt(cir_loss), 
-                    avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
-            if i % 100 == 50:
-                logger.write()
+                    if j ==0 and i%10 ==0:
+                        actor.printoo(obs=ep_obs, sess=sess)
+                        critic.printoo(obs=ep_obs, sess=sess)
+                        print('Path length %d' % len(path['rews']))
+                        print('Terminated {}'.format(path['terminated']))
+                    j +=1
+
+                avg_rew = float(tot_rews)/ ROLLS_PER_EPISODE  
+                ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs, ep_rews,  = U.make_np(ep_obs, ep_advs, ep_logps, 
+                                                                                        ep_target_vals, ep_acs, ep_rews)
+                ep_advs.reshape(-1)
+                ep_target_vals.reshape(-1)
+                ep_advs = (ep_advs - np.mean(ep_advs))/ (1e-8+ np.std(ep_advs))
+                """
+                if i%10 ==0:
+                    print('Advantage mean & std {}, {}'.format(np.mean(ep_advs), np.std(ep_advs)))       
+                if i % 50 == 13:
+                    perm = np.random.choice(len(ep_advs), size=20)
+                    print('Some obs', ep_obs[perm])
+                    print('Some acs', ep_obs[perm])
+                    print('Some advs', ep_obs[perm])
+                    print('Some rews', ep_rews[perm])
+                """
+                
+                cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
+                act_loss1, act_loss2, act_loss_full = train_actor(actor=actor, sess=sess, 
+                                                                 batch_size=BATCH, repeat=MULT, obs=ep_obs, 
+                                                                  advs=ep_advs, acs=ep_acs, logps=ep_logps)
+                if TB_log:
+                    summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_obs[:1000], critic.obs:ep_obs[:1000]})
+                    writer.add_summary(summ,i)
+                #logz
+                logger(i, act_loss1=act_loss1, act_loss2=act_loss2,  act_loss_full=act_loss_full, circ_loss=np.sqrt(cir_loss), 
+                        avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
+                if i % 100 == 50:
+                    logger.write()
 
 
-    del logger
+        del logger
 
 
 #all_vars = tf.trainable_variables()

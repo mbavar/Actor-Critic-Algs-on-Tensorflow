@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 SCALE = 0.1
+ID_FN = lambda x : x
 def xav(*t):
     return SCALE * xavier(*t)
 xavier = tf.contrib.layers.xavier_initializer()
@@ -46,46 +47,48 @@ def dense(name, inp, in_dim, out_dim, activation=None, initializer=xavier, summa
     else:
         return lin_out
 
-class Actor(object):
-    def __init__(self, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1, 
-                       ac_scale=2.0, ob_scale=[1.0, 1.0, 1.0]):
-    
-        self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
-        x = tf.layers.dense(name='first_layer', inputs=self.ob, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
-        x1 = tf.layers.dense(name='second_layer',  inputs=self.ob, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
-        self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
-        self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
-        if act_type == 'cont':            
-            mu = tf.layers.dense(name='third_layer', inputs=self.ob, units=num_ac,)
-            #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
-            log_std = tf.Variable(initial_value=tf.constant([0.0]* num_ac), name='log_std')
-            std = tf.exp(log_std)+ 1e-8
-            self.ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
-            self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - tf.reduce_sum(log_std)
-            self.ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)
-            logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - tf.reduce_sum(log_std)
-            printing_data = ['Actor Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
-        else:
-            logits = tf.layers.dense(name='logits', inputs=self.ob, units=num_ac) + 1e-8
-            self.ac = categorical_sample_logits(logits)
-            logps = tf.nn.log_softmax(logits)
-            self.logp = fancy_slice_2d(logps, tf.range(tf.shape(self.ac)[0]), self.ac)
-            self.ac_hist = tf.placeholder(shape=[None], dtype=tf.int32)
-            logp_newpolicy_oldac = fancy_slice_2d(logps, tf.range(tf.shape(self.ac_hist)[0]), self.ac_hist)
-            mu = logits
-            printing_data = ['Actor Data',  tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
 
-        self.rew_loss = -tf.reduce_mean(self.adv * logp_newpolicy_oldac) 
-        self.p_dist = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
-        # Actual loss stuff. Can try to add action entropy here too
-        self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
-        self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
-        self.loss = self.rew_loss  +  self.p_dist
-        self.opt = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
-        #Debugging stuff
-        self.printer = tf.constant(0.0) 
-        self.printer = tf.Print(self.printer, data=printing_data)
-        self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
+class Actor(object):
+    def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1, 
+                       ac_scaler=ID_FN, ob_scaler=ID_FN, ac_activation=ID_FN):
+        with tf.variable_scope(name):
+            self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
+            obs_scaled = ob_scaler(self.ob)
+            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
+            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
+            self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
+            self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
+            if act_type == 'cont':            
+                mu = ac_scaler(tf.layers.dense(name='third_layer', inputs=x1, units=num_ac, activation=ac_activation))
+                #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
+                log_std = tf.Variable(initial_value=tf.constant([0.0]* num_ac), name='log_std')
+                std = tf.exp(log_std)+ 1e-8
+                self.ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
+                self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - tf.reduce_sum(log_std)
+                self.ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)
+                logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - tf.reduce_sum(log_std)
+                printing_data = ['Actor Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
+            else:
+                logits = tf.layers.dense(name='logits', inputs=x1, units=num_ac) + 1e-8
+                self.ac = categorical_sample_logits(logits)
+                logps = tf.nn.log_softmax(logits)
+                self.logp = fancy_slice_2d(logps, tf.range(tf.shape(self.ac)[0]), self.ac)
+                self.ac_hist = tf.placeholder(shape=[None], dtype=tf.int32)
+                logp_newpolicy_oldac = fancy_slice_2d(logps, tf.range(tf.shape(self.ac_hist)[0]), self.ac_hist)
+                mu = logits
+                printing_data = ['Actor Data',  tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
+
+            self.rew_loss = -tf.reduce_mean(self.adv * logp_newpolicy_oldac) 
+            self.p_dist = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
+            # Actual loss stuff. Can try to add action entropy here too
+            self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
+            self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
+            self.loss = self.rew_loss  +  self.p_dist
+            self.opt = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
+            #Debugging stuff
+            self.printer = tf.constant(0.0) 
+            self.printer = tf.Print(self.printer, data=printing_data)
+            self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
 
     def act(self, ob, sess):
         ob = np.array(ob)
@@ -111,10 +114,11 @@ class Actor(object):
 
 
 class Critic(object):
-    def __init__(self, num_ob_feat, init_lr=0.005, ac_scale=2.0, ob_scale=[1.0, 1.0, 1.0]):
-        with tf.variable_scope('Critic'):
+    def __init__(self, name, num_ob_feat, init_lr=0.005, ob_scaler=ID_FN):
+        with tf.variable_scope(name):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
-            x = tf.layers.dense(name='first_layer', inputs=self.obs, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
+            obs_scaled = ob_scaler(self.obs)
+            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
             x1 = tf.layers.dense(name='second_layer',  inputs=x, units=32, activation=tf.nn.relu, kernel_initializer=xavier)
             #x2 = dense(name='third_layer', inp=x1, activation= tf.nn.relu, in_dim=16, out_dim=16)
             v = tf.layers.dense(name='value', inputs=x1, units=1)

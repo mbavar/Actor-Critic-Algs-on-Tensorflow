@@ -48,7 +48,7 @@ def dense(name, inp, in_dim, out_dim, activation=None, initializer=xavier, summa
 
 class Actor(object):
     def __init__(self, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1, 
-                       ac_scale=2.0, ob_scale=[1.0, 1.0, 1.0]):
+                       ac_scale=None, ob_scale=None):
     
         self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
         x = dense(name='first_layer', inp=self.ob, in_dim=num_ob_feat, out_dim=128, activation=tf.nn.relu)
