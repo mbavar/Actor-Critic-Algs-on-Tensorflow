@@ -1,9 +1,9 @@
 rm nohup.out
-nohup python run.py ps 0 &
-nohup python run.py ps 1 & 
-nohup python run.py worker 0 &
-nohup python run.py worker 1 &
-nohup python run.py worker 2 &
-nohup python run.py worker 3 &
+python run.py ps 0 &
+python run.py ps 1 & 
+python run.py worker 0 &
+python run.py worker 1 &
+python run.py worker 2 &
+python run.py worker 3 &
 
 
