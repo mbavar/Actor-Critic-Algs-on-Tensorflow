@@ -18,15 +18,15 @@ FRAMES = 2
 
 
 def main():
-parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("job", choices=["ps", "worker"])
-parser.add_argument("task", dtype=int, )
-parser.add_argument("--outdir", default='log.txt')
-parser.add_argument("--animate", default=False, action='store_true')
-parser.add_argument("--env", default='Pendulum-v0')
-parser.add_argument("--seed", default=12321)
-parser.add_argument("--tboard", default=False)
-args = parser.parse_args()
+	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+	parser.add_argument("job", choices=["ps", "worker"])
+	parser.add_argument("task", dtype=int, )
+	parser.add_argument("--outdir", default='log.txt')
+	parser.add_argument("--animate", default=False, action='store_true')
+	parser.add_argument("--env", default='Pendulum-v0')
+	parser.add_argument("--seed", default=12321)
+	parser.add_argument("--tboard", default=False)
+	args = parser.parse_args()
 
 
 
