@@ -99,15 +99,13 @@ def rollout(env, sess, policy, framer, max_path_length=100, render=False):
 
 def sync_local_to_global(local_scope, global_scope):
     local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=local_scope)
-    global_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=global_scope)
-    for v_l, v_g in zip(local_vars, global_vars):
-        tf.assign(v_l, v_g)
-    return 
+    global_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=global_scope)   
+    return [tf.assign(v_l, v_g) for v_l, v_g in zip(local_vars, global_vars)]
 
 
 
 
-def train_ciritic(local_critic, global_critic, sess, batch_size, repeat, obs, targets):
+def train_ciritic(critic,  sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
     #perm = np.random.permutation(n)
@@ -123,8 +121,7 @@ def train_ciritic(local_critic, global_critic, sess, batch_size, repeat, obs, ta
     for i in range(l):
         low = (i* batch_size) % n
         high = min(low+batch_size, n)
-        loss, new_grads = local_critic.get_grads(obs=obs[low:high], targets=targets[low:high],sess=sess)
-        global_critic.update_by_grads()
+        loss, _ = critic.optimize(obs=obs[low:high], targets=targets[low:high],sess=sess)
         tot_loss += loss
     post_preds = critic.value(obs, sess=sess)
     ev_after = var_accounted_for(targets, post_preds)
@@ -158,6 +155,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
 
     cluster = tf.train.ClusterSpec(cluster)
     server = tf.train.Server(cluster, job, task_id,)
+    
     if job == 'ps':
         server.join()
     else:
@@ -178,17 +176,20 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
         if is_chief:
             print('Initilizing chief. Envirnoment action type {}.'.format(act_type))
 
-        local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id))
-        local_actor = pol.Actor( num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, name='local_actor_{}'.format(task_id)) 
         with tf.device(tf.train.replica_device_setter(
             worker_device="/job:worker/task:%d" % task_id,
             cluster=cluster)):
             global_critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
-            global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type) 
-
-        sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
-        sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
-
+            global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type)
+        local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id), 
+                                   global_critic=global_critic)
+        local_actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, 
+                                name='local_actor_{}'.format(task_id), global_actor=global_actor) 
+        sync_actors = sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
+        sync_critics = sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
+        
+        def sync_global_and_local(sess):
+            sess.run([sync_actors, sync_critics])
         #merged = tf.summary.merge_all()
         #writer = tf.summary.FileWriter('./summaries/'+logger.logfile.split('_')[0], tf.get_default_graph())
 
@@ -199,6 +200,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                 ep_unproc_obs = []
                 ep_rews = []
                 tot_rews, j = 0, 0
+                sync_global_and_local(sess)
                 while len(ep_rews)<EP_LENGTH_STOP:
                     path = rollout(env=env, sess= sess, policy=local_actor.act, 
                                    max_path_length=MAX_PATH_LENGTH, framer=framer,
@@ -207,7 +209,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                     ep_obs += obs_aug[:-1]
                     ep_logps += path['logps']
                     ep_acs += path['acs']
-                    obs_vals = critic.value(obs=obs_aug, sess=sess).reshape(-1)
+                    obs_vals = local_critic.value(obs=obs_aug, sess=sess).reshape(-1)
                     target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terminated'], vals=obs_vals)
                     #target_val = discount(path['rews'], gamma=0.97)
                     #advs = target_val - obs_vals[:-1]
@@ -217,8 +219,8 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                     tot_rews += sum(path['rews'])
 
                     if j ==0 and i%10 ==0:
-                        actor.printoo(obs=ep_obs, sess=sess)
-                        critic.printoo(obs=ep_obs, sess=sess)
+                        local_actor.printoo(obs=ep_obs, sess=sess)
+                        local_critic.printoo(obs=ep_obs, sess=sess)
                         print('Path length %d' % len(path['rews']))
                         print('Terminated {}'.format(path['terminated']))
                     j +=1
@@ -240,13 +242,13 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                     print('Some rews', ep_rews[perm])
                 """
                 
-                cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
-                act_loss1, act_loss2, act_loss_full = train_actor(actor=actor, sess=sess, 
+                cir_loss, ev_before, ev_after = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
+                act_loss1, act_loss2, act_loss_full = train_actor(actor=local_actor, sess=sess, 
                                                                  batch_size=BATCH, repeat=MULT, obs=ep_obs, 
                                                                   advs=ep_advs, acs=ep_acs, logps=ep_logps)
-                if TB_log:
-                    summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_obs[:1000], critic.obs:ep_obs[:1000]})
-                    writer.add_summary(summ,i)
+                #if TB_log:
+                #    summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_obs[:1000], critic.obs:ep_obs[:1000]})
+                #    writer.add_summary(summ,i)
                 #logz
                 logger(i, act_loss1=act_loss1, act_loss2=act_loss2,  act_loss_full=act_loss_full, circ_loss=np.sqrt(cir_loss), 
                         avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
@@ -255,7 +257,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
 
 
         del logger
-"""
+
 
 #all_vars = tf.trainable_variables()
 #u = [v for v in all_vars if 'Critic' in v.name]

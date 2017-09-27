@@ -17,7 +17,10 @@ def variable_summaries(var, name=''):
     tf.summary.scalar('max', tf.reduce_max(var))
     tf.summary.scalar('min', tf.reduce_min(var))
     #tf.summary.histogram('histogram', var)
-
+def fancy_clip(grad, low, high):
+        if grad is None:
+            return grad
+        return tf.clip_by_value(grad, low, high)
 
 def fancy_slice_2d(X, inds0, inds1):
     """
@@ -59,6 +62,7 @@ class Actor(object):
             x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
             self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
             self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
+            self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
             if act_type == 'cont':            
                 mu = ac_scaler(tf.layers.dense(name='third_layer', inputs=x1, units=num_ac, activation=ac_activation))
                 #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
@@ -79,24 +83,24 @@ class Actor(object):
                 mu = logits
                 printing_data = ['Actor Data',  tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
 
-            if name == 'global_actor':
-                self.optimizer = optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
-                dummy = tf.constant(1.)
-                self.my_vars = [v for _,v in optimizer.compute_gradients(dummy)]
-                def update_by_grads(grads, global_step=None):
-                    grads_and_vars = zip(my_vars, grads)
-                    optimizer.apply_gradients(grads_and_vars=grads_and_vars, global_step=global_step)
-                self.update_by_grads= update_by_grads
-            else: 
-                self.rew_loss = -tf.reduce_mean(self.adv * logp_newpolicy_oldac) 
-                self.p_dist = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
-                # Actual loss stuff. Can try to add action entropy here too
-                self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
-                self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
-                self.loss = self.rew_loss  +  self.p_dist
-                grads_and_vars = tf.train.AdamOptimizer(learning_rate=self.lr).compute_gradients(self.loss)
-                self.grads_clipped = [tf.clip_by_value(g,-1.,1.) for g,_ in grads_and_vars]
-    
+            self.rew_loss = -tf.reduce_mean(self.adv * logp_newpolicy_oldac) 
+            self.p_dist = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
+            # Actual loss stuff. Can try to add action entropy here too
+            self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
+            self.loss = self.rew_loss  +  self.p_dist
+            self.my_optimizer = adam = tf.train.AdamOptimizer(learning_rate=self.lr)
+            self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
+            grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
+            grads_clipped = [tf.clip_by_value(g, -1., 1.) for g,_ in grads_and_vars]
+            self.my_vars = [v for _,v in grads_and_vars]
+            if global_actor is not None:
+                grads_and_vars = zip(grads_clipped, global_actor.my_vars)
+                self.opt_op =adam.apply_gradients(grads_and_vars)
+                def optimize(acs, obs, advs, logps, sess):
+                    feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
+                    return sess.run([self.rew_loss, self.p_dist, self.loss, self.opt_op], feed_dict=feed_dict)
+                self.optimize = optimize
+                
             #Debugging stuff
             self.printer = tf.constant(0.0) 
             self.printer = tf.Print(self.printer, data=printing_data)
@@ -109,9 +113,7 @@ class Actor(object):
         ac, logp =  sess.run([self.ac, self.logp], feed_dict={self.ob:ob})
         return ac[0], logp[0]
     
-    def get_grads(self, acs, obs, advs, logps, sess):
-        feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
-        return sess.run([self.rew_loss, self.p_dist, self.loss, self.grads_clipped], feed_dict=feed_dict)
+    
     
     def set_opt_param(self, sess, new_lr=None, new_beta=None):
         feed_dict = dict()
@@ -134,31 +136,28 @@ class Critic(object):
             x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
             x1 = tf.layers.dense(name='second_layer',  inputs=x, units=32, activation=tf.nn.relu, kernel_initializer=xavier)
             #x2 = dense(name='third_layer', inp=x1, activation= tf.nn.relu, in_dim=16, out_dim=16)
-            self.v = tf.layers.dense(name='value', inputs=x1, units=1)
-            if name == 'global_critic':
-                self.optimizer = optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
-                dummy = tf.constant(1.)
-                self.my_vars = [v for _,v in optimizer.compute_gradients(dummy)]
-                def update_by_grads(grads, global_step=None):
-                    grads_and_vars = zip(my_vars, grads, sess)
-                    opt_op = optimizer.apply_gradients(grads_and_vars=grads_and_vars, global_step=global_step)
-                    sess.run(opt_op)
-                self.update_by_grads= update_by_grads
-            else:
-                self.v_ = tf.placeholder(shape=[None], dtype=tf.float32)
-                self.loss = tf.reduce_mean(tf.square(v-v_))
-                self.lr = tf.Variable(initial_value=init_lr,dtype=tf.float32, trainable=False)
-                grads_and_vars = tf.train.AdamOptimizer(learning_rate=self.lr).compute_gradients(self.loss)
-                self.grads_clipped = [tf.clip_by_value(g,-1.,1.) for g,_ in grads_and_vars]
+            self.v = v = tf.layers.dense(name='value', inputs=x1, units=1)
+            self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
+            self.v_ = v_ = tf.placeholder(shape=[None], dtype=tf.float32)
+            self.loss = tf.reduce_mean(tf.square(v-v_))
+            self.lr = tf.Variable(initial_value=init_lr,dtype=tf.float32, trainable=False)
+            self.my_optimizer = adam = tf.train.AdamOptimizer(learning_rate=self.lr)
+            self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
+            grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
+            grads_clipped = [tf.clip_by_value(g, -1., 1.) for g,_ in grads_and_vars]
+            if global_critic is not None:    
+                grads_and_vars = zip(grads_clipped, global_critic.my_vars)
+                self.opt_op = adam.apply_gradients(grads_and_vars)
+                def optimize(obs, targets, sess):
+                        feed_dict={self.obs:obs, self.v_: targets}
+                        return sess.run([self.loss, self.opt_op], feed_dict=feed_dict)
+                self.optimize = optimize 
+
             self.printer = tf.constant(0.0)    
             self.printer = tf.Print(self.printer, data=['Ciritic data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
         
     def value(self, obs, sess):
         return sess.run(self.v, feed_dict={self.obs:obs})
-    
-    def get_grads(self, obs, targets, sess):
-        feed_dict={self.obs:obs, self.v_: targets}
-        return sess.run([self.loss, self.grads_clipped], feed_dict=feed_dict)
     
     def set_opt_param(self, new_lr, sess):
         return sess.run(self.lr, feed_dict={self.lr:new_lr})
