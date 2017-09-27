@@ -154,8 +154,8 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                stack_frames=2, animate=False, TB_log=False):
 
     cluster = tf.train.ClusterSpec(cluster)
-    server = tf.train.Server(cluster, job, task_id,)
-    
+    server = tf.train.Server(cluster, job_name=job, task_index=task_id)
+
     if job == 'ps':
         server.join()
     else:
@@ -163,7 +163,8 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
         framer = Framer(frame_num=stack_frames)
         ob_dim = env.observation_space.shape[0] * stack_frames
         rew_to_advs =  PathAdv(gamma=gamma, look_ahead=look_ahead)
-        is_chief = task_id == 0
+        #is_chief = (task_id == 0)
+        is_chief = True 
         
         np.random.seed(random_seed)
         env.seed(random_seed)
@@ -190,12 +191,16 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
         
         def sync_global_and_local(sess):
             sess.run([sync_actors, sync_critics])
+
+        print(' \n\n\nREACHING THE MAIN LOOP TASK %d\n\n\n' % task_id)
         #merged = tf.summary.merge_all()
         #writer = tf.summary.FileWriter('./summaries/'+logger.logfile.split('_')[0], tf.get_default_graph())
 
         with tf.train.MonitoredTrainingSession(master=server.target,is_chief=is_chief) as sess:
             #sess.run(tf.initialize_all_variables())
             for i in range(ITER):
+                if sess.should_stop():
+                    break
                 ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
                 ep_unproc_obs = []
                 ep_rews = []
@@ -223,6 +228,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                         local_critic.printoo(obs=ep_obs, sess=sess)
                         print('Path length %d' % len(path['rews']))
                         print('Terminated {}'.format(path['terminated']))
+                        print('Performed by worker {}'.format(task_id))
                     j +=1
 
                 avg_rew = float(tot_rews)/ ROLLS_PER_EPISODE  

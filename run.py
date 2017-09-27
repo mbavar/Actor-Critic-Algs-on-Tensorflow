@@ -23,10 +23,10 @@ def main():
     for i in range(args.allworkers):
         workers.append("localhost:{}".format(i+2+INITPORT))
     CLUSTER['worker'] = workers
-    LOG_FILE = args.outdir.split('.')[0] + '_{}.'.format(args.task) + args.outdir.split('.')[1]
+    LOG_FILE = args.outdir.split('.')[0] + '_{}.'.format(args.task) + args.outdir.split('.')[1] if args.job == 'worker' else  'no logging for ps'
     RANDOM_SEED = args.seed + args.task
 
-    logger = U.Logger(logfile=LOG_FILE)
+    logger = U.Logger(logfile=LOG_FILE) if args.job == 'worker' else None
     print("Starting {} {} with log at {}".format(args.job, args.task, LOG_FILE))
     process_fn(cluster=CLUSTER, task_id=args.task, job=args.job , logger=logger, 
                 env_id=args.env, animate=ANIMATE, random_seed=RANDOM_SEED)
