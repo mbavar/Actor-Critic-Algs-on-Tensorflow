@@ -163,8 +163,8 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
         framer = Framer(frame_num=stack_frames)
         ob_dim = env.observation_space.shape[0] * stack_frames
         rew_to_advs =  PathAdv(gamma=gamma, look_ahead=look_ahead)
-        #is_chief = (task_id == 0)
-        is_chief = True 
+        is_chief = (task_id == 0)
+        #is_chief = True 
         
         np.random.seed(random_seed)
         env.seed(random_seed)
@@ -177,30 +177,52 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
         if is_chief:
             print('Initilizing chief. Envirnoment action type {}.'.format(act_type))
 
+        worker_device = '/job:worker/task:{}/cpu:0'.format(task_id)
+        #with tf.device(tf.train.replica_device_setter(1, '/job:master', worker_device)):
+
+        ps_strategy = tf.contrib.training.GreedyLoadBalancingStrategy()
+        
+            
         with tf.device(tf.train.replica_device_setter(
-            worker_device="/job:worker/task:%d" % task_id,
-            cluster=cluster)):
+            worker_device=worker_device,
+            cluster=cluster, 
+            ps_strategy=ps_strategy)):
             global_critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
             global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type)
-        local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id), 
-                                   global_critic=global_critic)
-        local_actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, 
-                                name='local_actor_{}'.format(task_id), global_actor=global_actor) 
-        sync_actors = sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
-        sync_critics = sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
+            global_step = tf.Variable(initial_value=0, trainable=False)
+
+        #with tf.device('job:worker/task:{}/cpu:0'.format(task_id)):
+        with tf.device(worker_device):
+            local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id), 
+                                           global_critic=global_critic)
+            local_actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, 
+                                        name='local_actor_{}'.format(task_id), global_actor=global_actor) 
+            sync_actors = sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
+            sync_critics = sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
+            init_op = tf.global_variables_initializer()
+            global_variables_initializer = tf.global_variables_initializer()
         
         def sync_global_and_local(sess):
             sess.run([sync_actors, sync_critics])
+      
+        
+        #supervisor = tf.train.Supervisor(is_chief=is_chief,
+        #                                 init_op=tf.variables_initializer(model_variables),
+        #                                 global_step=global_step,
+        #                                 init_fn=init_fn)
+        #with supervisor.managed_session(server.target) as sess, sess.as_default():
+        scaf = tf.train.Scaffold(init_op=tf.global_variables_initializer())
+        local_init_op = tf.global_variables_initializer()
+        if not is_chief:
+            with tf.Session(server.target) as sess:
+                sess.run(local_init_op)
+        print('\n\n\nREACHING THE MAIN LOOP TASK %d\n\n\n' % task_id)
 
-        print(' \n\n\nREACHING THE MAIN LOOP TASK %d\n\n\n' % task_id)
-        #merged = tf.summary.merge_all()
-        #writer = tf.summary.FileWriter('./summaries/'+logger.logfile.split('_')[0], tf.get_default_graph())
 
-        with tf.train.MonitoredTrainingSession(master=server.target,is_chief=is_chief) as sess:
-            #sess.run(tf.initialize_all_variables())
+        with tf.train.MonitoredTrainingSession(master=server.target, is_chief=is_chief, scaffold=scaf) as sess:
             for i in range(ITER):
-                if sess.should_stop():
-                    break
+                #if sess.should_stop():
+                #    break
                 ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
                 ep_unproc_obs = []
                 ep_rews = []
@@ -229,6 +251,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                         print('Path length %d' % len(path['rews']))
                         print('Terminated {}'.format(path['terminated']))
                         print('Performed by worker {}'.format(task_id))
+
                     j +=1
 
                 avg_rew = float(tot_rews)/ ROLLS_PER_EPISODE  

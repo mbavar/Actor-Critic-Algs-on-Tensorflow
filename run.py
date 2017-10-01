@@ -12,17 +12,22 @@ def main():
     parser.add_argument("--env", default='Pendulum-v0')
     parser.add_argument("--seed", default=12321)
     parser.add_argument("--tboard", default=False)
-    parser.add_argument("--allworkers",default=4, type=int)
-    parser.add_argument("--initport", default=12345)
+    parser.add_argument("--worker_num",default=4, type=int)
+    parser.add_argument("--ps_num", default=2, type=int)
+    parser.add_argument("--initport", default=19845)
     args = parser.parse_args()
     
     ANIMATE = args.animate and args.task == 0 and  args.job == 'worker'
     INITPORT = args.initport
-    CLUSTER = {"ps":["localhost:{}".format(INITPORT), "localhost:{}".format(INITPORT+1)]}
+    CLUSTER = dict()
     workers = []
-    for i in range(args.allworkers):
-        workers.append("localhost:{}".format(i+2+INITPORT))
+    ps_ = []
+    for i in range(args.ps_num):
+        ps_.append('localhost:{}'.format(INITPORT+i))
+    for i in range(args.worker_num):
+        workers.append("localhost:{}".format(i+args.ps_num+INITPORT))
     CLUSTER['worker'] = workers
+    CLUSTER['ps'] = ps_
     LOG_FILE = args.outdir.split('.')[0] + '_{}.'.format(args.task) + args.outdir.split('.')[1] if args.job == 'worker' else  'no logging for ps'
     RANDOM_SEED = args.seed + args.task
 
