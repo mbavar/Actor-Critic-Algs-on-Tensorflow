@@ -7,13 +7,12 @@ from scipy import signal
 
 import Policies1 as pol
 
-ROLLS_PER_EPISODE = 10
 MAX_PATH_LENGTH = 400
-ITER = 100000
-BATCH = 32
+BATCH = 128
 MULT = 5
 LOG_ROUND = 10
-EP_LENGTH_STOP = 2000
+EP_LENGTH_STOP = 800
+MAX_SAMPLES = 10000000
 
 
 def discount(x, gamma):
@@ -108,16 +107,10 @@ def sync_local_to_global(local_scope, global_scope):
 def train_ciritic(critic,  sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
-    #perm = np.random.permutation(n)
-    #obs = obs[perm]
-    #targets = targets[perm]
-    #targets = targets.reshape(-1)
     pre_preds = critic.value(obs, sess=sess)
     ev_before = var_accounted_for(targets, pre_preds)
-    #print(np.mean(targets), np.mean(pre_preds))
-    #ev_before = var_accounted_for(targets, targets)
     tot_loss = 0.0
-    l = int(repeat*len(obs)/n+1)
+    l = int(repeat*len(obs)/batch_size+1)
     for i in range(l):
         low = (i* batch_size) % n
         high = min(low+batch_size, n)
@@ -125,7 +118,6 @@ def train_ciritic(critic,  sess, batch_size, repeat, obs, targets):
         tot_loss += loss
     post_preds = critic.value(obs, sess=sess)
     ev_after = var_accounted_for(targets, post_preds)
-    #print(ev_before, ev_after)
     return tot_loss/ l, ev_before, ev_after
 
 
@@ -135,10 +127,8 @@ def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
     n = len(obs)
-    perm = np.random.permutation(n)
-    obs, advs, acs, logps = obs[perm], advs[perm], acs[perm], logps[perm]
     tot_rew_loss, tot_p_dist, tot_comb_loss = 0.0, 0.0, 0.0 
-    l = int(repeat*len(obs)/n+1)
+    l = int(repeat*len(obs)/batch_size+1)
     for i in range(l):
         low = (i* batch_size) % n
         high = min(low+batch_size, n)
@@ -146,12 +136,12 @@ def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
         tot_comb_loss += comb_loss
         tot_p_dist += p_dist
         tot_rew_loss += rew_loss
-    
+    actor.update_global_step(sess=sess, batch_size=n)
     return (tot_rew_loss/l, tot_p_dist/l, tot_comb_loss/l)
 
 
-def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0.97, look_ahead=30, 
-               stack_frames=2, animate=False, TB_log=False):
+def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=12321, gamma=0.97, look_ahead=30, 
+               stack_frames=2, animate=False, TB_log=False, ):
 
     cluster = tf.train.ClusterSpec(cluster)
     server = tf.train.Server(cluster, job_name=job, task_index=task_id)
@@ -164,7 +154,6 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
         ob_dim = env.observation_space.shape[0] * stack_frames
         rew_to_advs =  PathAdv(gamma=gamma, look_ahead=look_ahead)
         is_chief = (task_id == 0)
-        #is_chief = True 
         
         np.random.seed(random_seed)
         env.seed(random_seed)
@@ -178,40 +167,29 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
             print('Initilizing chief. Envirnoment action type {}.'.format(act_type))
 
         worker_device = '/job:worker/task:{}/cpu:0'.format(task_id)
-        #with tf.device(tf.train.replica_device_setter(1, '/job:master', worker_device)):
-
-        ps_strategy = tf.contrib.training.GreedyLoadBalancingStrategy()
-        
-            
+        #ps_strategy = tf.contrib.training.GreedyLoadBalancingStrategy() 
         with tf.device(tf.train.replica_device_setter(
             worker_device=worker_device,
-            cluster=cluster, 
-            ps_strategy=ps_strategy)):
+            cluster=cluster,)):
             global_critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
-            global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type)
-            global_step = tf.Variable(initial_value=0, trainable=False)
+            global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type)     
+            global_step = tf.Variable(initial_value=0, trainable=False, dtype=tf.int64) 
+            global_vars = global_actor.my_vars + global_critic.my_vars 
+            #saver = tf.train.Saver(var_list=global_vars, max_to_keep=3)
 
-        #with tf.device('job:worker/task:{}/cpu:0'.format(task_id)):
         with tf.device(worker_device):
             local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id), 
                                            global_critic=global_critic)
             local_actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, 
-                                        name='local_actor_{}'.format(task_id), global_actor=global_actor) 
+                                        name='local_actor_{}'.format(task_id), global_actor=global_actor, global_step=global_step) 
             sync_actors = sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
             sync_critics = sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
-            init_op = tf.global_variables_initializer()
-            global_variables_initializer = tf.global_variables_initializer()
         
         def sync_global_and_local(sess):
             sess.run([sync_actors, sync_critics])
-      
-        
-        #supervisor = tf.train.Supervisor(is_chief=is_chief,
-        #                                 init_op=tf.variables_initializer(model_variables),
-        #                                 global_step=global_step,
-        #                                 init_fn=init_fn)
+            return sess.run(global_step)
+
         #with supervisor.managed_session(server.target) as sess, sess.as_default():
-        scaf = tf.train.Scaffold(init_op=tf.global_variables_initializer())
         local_init_op = tf.global_variables_initializer()
         if not is_chief:
             with tf.Session(server.target) as sess:
@@ -219,15 +197,14 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
         print('\n\n\nREACHING THE MAIN LOOP TASK %d\n\n\n' % task_id)
 
 
-        with tf.train.MonitoredTrainingSession(master=server.target, is_chief=is_chief, scaffold=scaf) as sess:
-            for i in range(ITER):
-                #if sess.should_stop():
-                #    break
+        with tf.train.MonitoredTrainingSession(master=server.target) as sess:
+            i, gstep = 0, 0 
+            while not sess.should_stop() and gstep < MAX_SAMPLES:
                 ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
                 ep_unproc_obs = []
                 ep_rews = []
-                tot_rews, j = 0, 0
-                sync_global_and_local(sess)
+                tot_rews, rolls = 0, 0
+                gstep = sync_global_and_local(sess) 
                 while len(ep_rews)<EP_LENGTH_STOP:
                     path = rollout(env=env, sess= sess, policy=local_actor.act, 
                                    max_path_length=MAX_PATH_LENGTH, framer=framer,
@@ -238,23 +215,22 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                     ep_acs += path['acs']
                     obs_vals = local_critic.value(obs=obs_aug, sess=sess).reshape(-1)
                     target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terminated'], vals=obs_vals)
-                    #target_val = discount(path['rews'], gamma=0.97)
-                    #advs = target_val - obs_vals[:-1]
                     ep_target_vals += list(target_val)
                     ep_advs += list(advs)
                     ep_rews += path['rews']
                     tot_rews += sum(path['rews'])
 
-                    if j ==0 and i%10 ==0:
+                    if rolls ==0 and i%10 ==0:
                         local_actor.printoo(obs=ep_obs, sess=sess)
                         local_critic.printoo(obs=ep_obs, sess=sess)
+                        print('Global Step %d' % gstep)
                         print('Path length %d' % len(path['rews']))
                         print('Terminated {}'.format(path['terminated']))
                         print('Performed by worker {}'.format(task_id))
 
-                    j +=1
+                    rolls +=1
 
-                avg_rew = float(tot_rews)/ ROLLS_PER_EPISODE  
+                avg_rew = float(tot_rews)/ rolls  
                 ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs, ep_rews,  = U.make_np(ep_obs, ep_advs, ep_logps, 
                                                                                         ep_target_vals, ep_acs, ep_rews)
                 ep_advs.reshape(-1)
@@ -283,7 +259,7 @@ def process_fn(cluster, task_id, job, env_id, logger, random_seed=12321, gamma=0
                         avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
                 if i % 100 == 50:
                     logger.write()
-
+                i += 1
 
         del logger
 

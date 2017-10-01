@@ -53,7 +53,8 @@ def dense(name, inp, in_dim, out_dim, activation=None, initializer=xavier, summa
 
 class Actor(object):
     def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1, 
-                       ac_scaler=ID_FN, ob_scaler=ID_FN, ac_activation=ID_FN, global_actor=None):
+                       ac_scaler=ID_FN, ob_scaler=ID_FN, ac_activation=ID_FN, global_actor=None, global_step=None):
+        assert (global_actor == global_step == None) or ((global_actor is not None and global_step is not None))
         self.name = name
         with tf.variable_scope(name):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
@@ -93,14 +94,19 @@ class Actor(object):
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
             grads_clipped = [tf.clip_by_value(g, -1., 1.) for g,_ in grads_and_vars]
             self.my_vars = [v for _,v in grads_and_vars]
+
             if global_actor is not None:
                 grads_and_vars = zip(grads_clipped, global_actor.my_vars)
                 self.opt_op =adam.apply_gradients(grads_and_vars)
                 def optimize(acs, obs, advs, logps, sess):
                     feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
                     return sess.run([self.rew_loss, self.p_dist, self.loss, self.opt_op], feed_dict=feed_dict)
-                self.optimize = optimize
-                
+                batch = tf.placeholder(dtype=tf.int64, shape=())
+                update_global_step_op = global_step.assign_add(batch)
+                def update_global_step(sess, batch_size):
+                    sess.run([update_global_step_op], feed_dict={batch:batch_size})
+                self.update_global_step = update_global_step    
+                self.optimize = optimize     
             #Debugging stuff
             self.printer = tf.constant(0.0) 
             self.printer = tf.Print(self.printer, data=printing_data)
@@ -112,9 +118,7 @@ class Actor(object):
             ob = ob[None]
         ac, logp =  sess.run([self.ac, self.logp], feed_dict={self.ob:ob})
         return ac[0], logp[0]
-    
-    
-    
+       
     def set_opt_param(self, sess, new_lr=None, new_beta=None):
         feed_dict = dict()
         if new_beta is not None:
