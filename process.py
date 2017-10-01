@@ -5,7 +5,7 @@ import util as U
 
 from scipy import signal
 
-import Policies1 as pol
+import Policies as pol
 
 MAX_PATH_LENGTH = 400
 BATCH = 128
