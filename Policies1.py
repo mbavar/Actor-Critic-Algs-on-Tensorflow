@@ -58,19 +58,19 @@ class Actor(object):
     
         self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
         x = tf.layers.dense(name='first_layer', inputs=self.ob, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
-        x= tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
-        x2 = tf.layers.dense(name='third_layer',  inputs=xx, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
+        x1 = tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
+        x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
         self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
         self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
         if act_type == 'cont':            
-            mu = tf.layers.dense(name='third_layer', inputs=x, units=num_ac,)
+            mu = tf.layers.dense(name='mu_layer', inputs=x2, units=num_ac,)
             #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
-            log_std = tf.layers.dense(name='log_std', inputs=x, units=num_ac,)
+            log_std = tf.layers.dense(name='log_std', inputs=x2, units=num_ac,)
             std = tf.exp(log_std)+ 1e-8
             self.ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
-            self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - tf.reduce_sum(log_std)
+            self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - 2.5*tf.reduce_sum(log_std, axis=1)
             self.ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)
-            logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - tf.reduce_sum(log_std)
+            logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - 2.5*tf.reduce_sum(log_std, axis=1)
             printing_data = ['Actor Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
         else:
             logits = tf.layers.dense(name='logits', inputs=x1, units=num_ac) + 1e-8
@@ -92,7 +92,7 @@ class Actor(object):
         #Debugging stuff
         self.printer = tf.constant(0.0) 
         self.printer = tf.Print(self.printer, data=printing_data)
-        self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
+        self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1),tf.reduce_mean(x2), tf.reduce_mean(mu)])
 
     def act(self, ob, sess):
         ob = np.array(ob)
@@ -132,7 +132,7 @@ class Critic(object):
             self.lr = tf.Variable(initial_value=init_lr,dtype=tf.float32, trainable=False)
             self.opt = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
             self.printer = tf.constant(0.0)    
-            self.printer = tf.Print(self.printer, data=[tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
+            self.printer = tf.Print(self.printer, data=['Critic data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
         
     def value(self, obs, sess):
         return sess.run(self.v, feed_dict={self.obs:obs})
