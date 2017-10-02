@@ -129,6 +129,8 @@ def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
     n = len(obs)
+    perm = np.random.permutation(n)
+    obs, advs, logps, acs = obs[perm], advs[perm], logps[perm], acs[perm]
     tot_rew_loss, tot_p_dist, tot_comb_loss = 0.0, 0.0, 0.0 
     l = int(repeat*len(obs)/batch_size+1)
     for i in range(l):
@@ -146,24 +148,27 @@ parser.add_argument("--outdir", default='log.txt')
 parser.add_argument("--animate", default=False, action='store_true')
 parser.add_argument("--env", default='Pendulum-v0')
 parser.add_argument("--seed", default=12321)
-parser.add_argument("--tboard", default=False)
+parser.add_argument("--tboard", default=False, action='store_true')
 args = parser.parse_args()
 LOG_FILE = args.outdir
 ANIMATE = args.animate
 
 MAX_PATH_LENGTH = 400
 ITER = 100000
-BATCH = 32
+BATCH = 64
 MULT = 2
 LOG_ROUND = 10
-EP_LENGTH_STOP = 800
+EP_LENGTH_STOP = 1200
 FRAMES = 2
+
+desired_kl = 0.002
+max_lr, min_lr = 1. , 1e-6
 
 env = gym.make(args.env)
 framer = Framer(frame_num=FRAMES)
 ob_dim = env.observation_space.shape[0] * FRAMES
 critic = pol.Critic(num_ob_feat=ob_dim*2+4)
-rew_to_advs =  PathAdv(gamma=0.97, look_ahead=30)
+rew_to_advs =  PathAdv(gamma=0.98, look_ahead=10)
 logger = U.Logger(logfile=LOG_FILE)
 np.random.seed(args.seed)
 env.seed(args.seed)
@@ -241,10 +246,18 @@ with tf.Session() as sess:
             summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_unproc_obs[:1000], critic.obs:ep_obs[:1000]})
             writer.add_summary(summ,i)
         #logz
+        act_lr, _ = actor.get_opt_param(sess)
         logger(i, act_loss1=act_loss1, act_loss2=act_loss2,  act_loss_full=act_loss_full, circ_loss=np.sqrt(cir_loss), 
-                avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
+                avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after,act_lr=act_lr, print_tog= (i %20) == 0)
         if i % 100 == 50:
             logger.write()
+        if act_loss2 < desired_kl/4:
+            new_lr = min(max_lr,act_lr*1.5)
+
+            actor.set_opt_param(sess=sess, new_lr=new_lr)
+        elif act_loss2 > desired_kl * 4:
+            new_lr = max(min_lr,act_lr/1.5)
+            actor.set_opt_param(sess=sess, new_lr=new_lr)
 
 
 del logger
