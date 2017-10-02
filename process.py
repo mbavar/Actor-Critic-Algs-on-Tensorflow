@@ -208,7 +208,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                 while len(ep_rews)<EP_LENGTH_STOP:
                     path = rollout(env=env, sess= sess, policy=local_actor.act, 
                                    max_path_length=MAX_PATH_LENGTH, framer=framer,
-                                   render= j==0 and  i % 20 == 0 and animate and is_chief)
+                                   render= rolls==0 and  i % 20 == 0 and animate and is_chief)
                     obs_aug = framer.full(path['obs'])
                     ep_obs += obs_aug[:-1]
                     ep_logps += path['logps']
