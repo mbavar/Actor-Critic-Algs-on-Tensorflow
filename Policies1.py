@@ -1,8 +1,8 @@
 import tensorflow as tf
 import numpy as np
 SCALE = 0.1
-def xav(*t):
-    return SCALE * xavier(*t)
+def xav(*t, dtype, partition_info):
+    return 0.1 * xavier(*t)
 xavier = tf.contrib.layers.xavier_initializer()
 
 def variable_summaries(var, name=''):
@@ -29,6 +29,11 @@ def fancy_slice_2d(X, inds0, inds1):
     Xflat = tf.reshape(X, [-1])
     return tf.gather(Xflat, inds0 * ncols + inds1)
 
+def fancy_clip(grad, low, high):
+        if grad is None:
+            return grad
+        return tf.clip_by_value(grad, low, high)
+
 def categorical_sample_logits(X):
     # https://github.com/tensorflow/tensorflow/issues/456
     U = tf.random_uniform(tf.shape(X))
@@ -47,9 +52,9 @@ def dense(name, inp, in_dim, units, activation=None, initializer=xavier, summary
     else:
         return lin_out
 
-def normalized_column_initializer(shape, scale=1.0):
+def normalized_column_initializer(shape, dtype, partition_info):
     u = tf.random_normal(shape=shape,dtype=tf.float32)
-    scale =  tf.sqrt(tf.reduce_sum(tf.square(u), axis=0))/scale
+    scale =  tf.sqrt(tf.reduce_sum(tf.square(u), axis=0))/0.1
     return u/scale
   
 class Actor(object):
@@ -63,14 +68,14 @@ class Actor(object):
         self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
         self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
         if act_type == 'cont':            
-            mu = tf.layers.dense(name='mu_layer', inputs=x2, units=num_ac,)
+            mu = tf.layers.dense(name='mu_layer', inputs=x2, units=num_ac) * 2.0
             #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
-            log_std = tf.layers.dense(name='log_std', inputs=x2, units=num_ac,)
+            log_std = -tf.constant([0.5]*num_ac) #tf.layers.dense(name='log_std', inputs=self.ob, units=num_ac,  kernel_initializer=normalized_column_initializer)
             std = tf.exp(log_std)+ 1e-8
             self.ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
-            self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - 2.5*tf.reduce_sum(log_std, axis=1)
+            self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - log_std
             self.ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)
-            logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - 2.5*tf.reduce_sum(log_std, axis=1)
+            logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - log_std
             printing_data = ['Actor Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
         else:
             logits = tf.layers.dense(name='logits', inputs=x1, units=num_ac) + 1e-8
@@ -87,8 +92,11 @@ class Actor(object):
         # Actual loss stuff. Can try to add action entropy here too
         self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
         self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
-        self.loss = self.rew_loss  +  self.p_dist
-        self.opt = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
+        self.loss = self.rew_loss  +  self.beta * self.p_dist
+        adam = tf.train.AdamOptimizer(learning_rate=self.lr)
+        grads_and_vars =  adam.compute_gradients(self.loss)
+        grads_and_vars = [ (fancy_clip(g, -0.01, 0.01), v) for g,v in grads_and_vars]
+        self.opt = adam.apply_gradients(grads_and_vars)
         #Debugging stuff
         self.printer = tf.constant(0.0) 
         self.printer = tf.Print(self.printer, data=printing_data)
