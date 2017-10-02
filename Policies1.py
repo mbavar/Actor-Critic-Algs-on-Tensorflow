@@ -58,13 +58,14 @@ class Actor(object):
     
         self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
         x = tf.layers.dense(name='first_layer', inputs=self.ob, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
-        x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
+        x= tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
+        x2 = tf.layers.dense(name='third_layer',  inputs=xx, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
         self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
         self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
         if act_type == 'cont':            
-            mu = tf.layers.dense(name='third_layer', inputs=x1, units=num_ac,)
+            mu = tf.layers.dense(name='third_layer', inputs=x, units=num_ac,)
             #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
-            log_std = tf.Variable(initial_value=tf.constant([0.0]* num_ac), name='log_std')
+            log_std = tf.layers.dense(name='log_std', inputs=x, units=num_ac,)
             std = tf.exp(log_std)+ 1e-8
             self.ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
             self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - tf.reduce_sum(log_std)
