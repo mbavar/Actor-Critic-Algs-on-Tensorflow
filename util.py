@@ -11,7 +11,7 @@ class Logger(object):
         self.f.write('step avg_rew ev_before ev_after act_loss_1 act_loss_2 act_loss_full crit_loss\n')
         self._reset()
         
-    def __call__(self, t, act_loss1, act_loss2, act_loss_full, circ_loss, avg_rew, print_tog, ev_before= -1 , ev_after=-1):
+    def __call__(self, t, act_loss1, act_loss2, act_loss_full, circ_loss, avg_rew, print_tog, act_lr, worker_id, ev_before= -1 , ev_after=-1):
         if print_tog:
             print('Iteration %d' % t)
             print('EpRewMean %.4f ' % avg_rew )
@@ -19,6 +19,8 @@ class Logger(object):
             print('EV After %f' % ev_after )
             print('Act losses %.4f    %.4f    %.4f' %(act_loss1, act_loss2, act_loss_full))
             print('Critic loss  %.4f' % circ_loss)
+            print('Actor lr %f' % act_lr)
+            print('Performed by worker %d' % worker_id)
             
 
         self.act_loss1.append(act_loss1)

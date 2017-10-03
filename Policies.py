@@ -59,16 +59,17 @@ class Actor(object):
         with tf.variable_scope(name):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             obs_scaled = ob_scaler(self.ob)
-            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
-            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
+            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.elu, kernel_initializer=xavier)
+            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.elu, kernel_initializer=xavier)
             self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
             self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
             if act_type == 'cont':            
-                mu = ac_scaler(tf.layers.dense(name='third_layer', inputs=x1, units=num_ac, activation=ac_activation))
+                mu = ac_scaler(tf.layers.dense(name='third_layer', inputs=x1, units=num_ac, activation=tf.nn.tanh)) * 2.
                 #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
                 log_std = tf.Variable(initial_value=tf.constant([0.0]* num_ac), name='log_std')
-                std = tf.exp(log_std)+ 1e-8
+                log_std = tf.clip_by_value(log_std, -2.5, 2.5)
+                std = tf.exp(log_std) 
                 self.ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
                 self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - tf.reduce_sum(log_std)
                 self.ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)
@@ -92,7 +93,7 @@ class Actor(object):
             self.my_optimizer = adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
-            grads_clipped = [tf.clip_by_value(g, -1., 1.) for g,_ in grads_and_vars]
+            grads_clipped = [tf.clip_by_value(g, -0.1, 0.1) for g,_ in grads_and_vars]
             self.my_vars = [v for _,v in grads_and_vars]
 
             if global_actor is not None:
@@ -106,11 +107,17 @@ class Actor(object):
                 def update_global_step(sess, batch_size):
                     sess.run([update_global_step_op], feed_dict={batch:batch_size})
                 self.update_global_step = update_global_step    
-                self.optimize = optimize     
+                self.optimize = optimize
+                new_lr = tf.placeholder(dtype=tf.float32, shape=())
+                lr_assign = tf.assign(self.lr, new_lr)
+                def _lr_update(sess, val):
+                    return sess.run(lr_assign, feed_dict={new_lr:val})
+                self._lr_update = _lr_update
             #Debugging stuff
             self.printer = tf.constant(0.0) 
             self.printer = tf.Print(self.printer, data=printing_data)
             self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
+
 
     def act(self, ob, sess):
         ob = np.array(ob)
@@ -124,8 +131,11 @@ class Actor(object):
         if new_beta is not None:
             feed_dict[self.beta] = new_beta
         if new_lr is not None:
-            feed_dict[self.lr] = new_lr
-        return sess.run([self.lr,self.beta],feed_dict=feed_dict)
+            self._lr_update(sess=sess, val=new_lr)
+        return self.get_opt_param(sess)
+
+    def get_opt_param(self, sess):
+        return sess.run([self.lr, self.beta])
 
     def printoo(self, obs, sess):
         return sess.run([self.printer], feed_dict={self.ob: obs})

@@ -13,6 +13,8 @@ MULT = 5
 LOG_ROUND = 10
 EP_LENGTH_STOP = 800
 MAX_SAMPLES = 10000000
+DESIRED_KL = 0.002
+MAX_LR, MIN_LR = 1. , 1e-7
 
 
 def discount(x, gamma):
@@ -146,6 +148,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
     cluster = tf.train.ClusterSpec(cluster)
     server = tf.train.Server(cluster, job_name=job, task_index=task_id)
 
+
     if job == 'ps':
         server.join()
     else:
@@ -194,8 +197,8 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
         if not is_chief:
             with tf.Session(server.target) as sess:
                 sess.run(local_init_op)
-        print('\n\n\nREACHING THE MAIN LOOP TASK %d\n\n\n' % task_id)
-
+        print('\n\nREACHING THE MAIN LOOP TASK %d\n' % task_id)
+        desired_kl, max_lr, min_lr = DESIRED_KL, MAX_LR, MIN_LR
 
         with tf.train.MonitoredTrainingSession(master=server.target) as sess:
             i, gstep = 0, 0 
@@ -226,7 +229,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                         print('Global Step %d' % gstep)
                         print('Path length %d' % len(path['rews']))
                         print('Terminated {}'.format(path['terminated']))
-                        print('Performed by worker {}'.format(task_id))
+                        
 
                     rolls +=1
 
@@ -255,7 +258,15 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                 #    summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_obs[:1000], critic.obs:ep_obs[:1000]})
                 #    writer.add_summary(summ,i)
                 #logz
-                logger(i, act_loss1=act_loss1, act_loss2=act_loss2,  act_loss_full=act_loss_full, circ_loss=np.sqrt(cir_loss), 
+                act_lr, _ = local_actor.get_opt_param(sess)
+                if act_loss2 < desired_kl/4:
+                    new_lr = min(max_lr,act_lr*1.5)
+                    local_actor.set_opt_param(sess=sess, new_lr=new_lr)
+                elif act_loss2 > desired_kl * 4:
+                    new_lr = max(min_lr,act_lr/1.5)
+                    local_actor.set_opt_param(sess=sess, new_lr=new_lr)
+
+                logger(i, act_loss1=act_loss1, worker_id = task_id, act_loss2=act_loss2,  act_lr=act_lr, act_loss_full=act_loss_full, circ_loss=np.sqrt(cir_loss), 
                         avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
                 if i % 100 == 50:
                     logger.write()
