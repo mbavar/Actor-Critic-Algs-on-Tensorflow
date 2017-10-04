@@ -86,10 +86,11 @@ class Actor(object):
                 #printing_data = ['Actor Data',  tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
 
             self.rew_loss = -tf.reduce_mean(self.adv * logp_newpolicy_oldac) 
-            self.p_dist = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
+            self.oldnew_kl = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
             # Actual loss stuff. Can try to add action entropy here too
             self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
-            self.loss = self.rew_loss  +  self.p_dist
+            self.loss = self.rew_loss   #+  self.oldnew_kl  (this used to be part of our ppo technique. But this is a bit more 
+                                        #                problematic in asynchornous setting.)
             self.my_optimizer = adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
@@ -101,7 +102,7 @@ class Actor(object):
                 self.opt_op =adam.apply_gradients(grads_and_vars)
                 def optimize(acs, obs, advs, logps, sess):
                     feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
-                    return sess.run([self.rew_loss, self.p_dist, self.loss, self.opt_op], feed_dict=feed_dict)
+                    return sess.run([self.loss, self.opt_op], feed_dict=feed_dict)
                 batch = tf.placeholder(dtype=tf.int64, shape=())
                 update_global_step_op = global_step.assign_add(batch)
                 def update_global_step(sess, batch_size):
@@ -117,8 +118,11 @@ class Actor(object):
             printing_data = ["Actor data"]+ [tf.reduce_mean(v) for v in self.my_vars]
             self.printer = tf.constant(0.0) 
             self.printer = tf.Print(self.printer, data=printing_data)
+            
             #self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
-
+    def get_kl(self, sess, logp_feeds, obs, acs):
+        feed_dict = {self.logp_feed:logp_feeds, self.ac_hist:acs, self.ob:obs}
+        return sess.run(self.oldnew_kl, feed_dict=feed_dict)
 
     def act(self, ob, sess):
         ob = np.array(ob)

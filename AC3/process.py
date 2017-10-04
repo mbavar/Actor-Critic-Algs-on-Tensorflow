@@ -13,7 +13,7 @@ MULT = 5
 LOG_ROUND = 10
 EP_LENGTH_STOP = 800
 MAX_SAMPLES = 10000000
-DESIRED_KL = 0.002
+DESIRED_KL = 0.04
 MAX_LR, MIN_LR = 1. , 1e-7
 
 
@@ -124,22 +124,19 @@ def train_ciritic(critic,  sess, batch_size, repeat, obs, targets):
 
 
 
-
 def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
     n = len(obs)
-    tot_rew_loss, tot_p_dist, tot_comb_loss = 0.0, 0.0, 0.0 
+    tot_loss = 0.0
     l = int(repeat*len(obs)/batch_size+1)
     for i in range(l):
         low = (i* batch_size) % n
         high = min(low+batch_size, n)
-        rew_loss, p_dist, comb_loss, _ = actor.optimize(sess=sess, obs=obs[low:high], acs=acs[low:high],  advs=advs[low:high], logps=logps[low:high])
-        tot_comb_loss += comb_loss
-        tot_p_dist += p_dist
-        tot_rew_loss += rew_loss
+        batch_loss, _ = actor.optimize(sess=sess, obs=obs[low:high], acs=acs[low:high],  advs=advs[low:high], logps=logps[low:high])
+        tot_loss += batch_loss
     actor.update_global_step(sess=sess, batch_size=n)
-    return (tot_rew_loss/l, tot_p_dist/l, tot_comb_loss/l)
+    return  tot_loss/l
 
 
 def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=12321, gamma=0.97, look_ahead=30, 
@@ -199,18 +196,11 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                 sess.run(local_init_op)
         print('\n\nREACHING THE MAIN LOOP TASK %d\n' % task_id)
         desired_kl, max_lr, min_lr = DESIRED_KL, MAX_LR, MIN_LR
+        kl_dist = 0.
 
         with tf.train.MonitoredTrainingSession(master=server.target) as sess:
             i, gstep = 0, 0 
             while not sess.should_stop() and gstep < MAX_SAMPLES:
-                if i % 10 == 5:
-                    print('Printing before sync data')
-                    local_actor.printoo(obs=ep_obs, sess=sess)
-                gstep = sync_global_and_local(sess)
-                if i % 10 == 5:
-                    print('Printing after sync data')
-                    local_actor.printoo(obs=ep_obs, sess=sess)
-                
                 ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
                 ep_unproc_obs = []
                 ep_rews = []
@@ -238,7 +228,6 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                         print('Path length %d' % len(path['rews']))
                         print('Terminated {}'.format(path['terminated']))
                         
-
                     rolls +=1
 
                 avg_rew = float(tot_rews)/ rolls  
@@ -259,23 +248,28 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                 """
                 
                 cir_loss, ev_before, ev_after = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
-                act_loss1, act_loss2, act_loss_full = train_actor(actor=local_actor, sess=sess, 
+                act_loss = train_actor(actor=local_actor, sess=sess, 
                                                                  batch_size=BATCH, repeat=MULT, obs=ep_obs, 
                                                                   advs=ep_advs, acs=ep_acs, logps=ep_logps)
                 #if TB_log:
                 #    summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_obs[:1000], critic.obs:ep_obs[:1000]})
                 #    writer.add_summary(summ,i)
                 #logz
+                #Syncing, KL, change of learning rate
+
+                gstep = sync_global_and_local(sess)
+                kl_dist = local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
                 act_lr, _ = local_actor.get_opt_param(sess)
-                if act_loss2 < desired_kl/4:
+                if kl_dist < desired_kl/5:
                     new_lr = min(max_lr,act_lr*1.5)
                     local_actor.set_opt_param(sess=sess, new_lr=new_lr)
-                elif act_loss2 > desired_kl * 4:
+                elif kl_dist > desired_kl * 5:
                     new_lr = max(min_lr,act_lr/1.5)
                     local_actor.set_opt_param(sess=sess, new_lr=new_lr)
 
-                logger(i, act_loss1=act_loss1, worker_id = task_id, act_loss2=act_loss2,  act_lr=act_lr, act_loss_full=act_loss_full, circ_loss=np.sqrt(cir_loss), 
-                        avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
+
+                logger(i, act_loss=act_loss, worker_id = task_id, act_lr=act_lr, kl_dist=kl_dist, circ_loss=np.sqrt(cir_loss), avg_rew=avg_rew, 
+                       ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
                 if i % 100 == 50:
                     logger.write()
                 i += 1
