@@ -114,7 +114,7 @@ class Actor(object):
                     return sess.run(lr_assign, feed_dict={new_lr:val})
                 self._lr_update = _lr_update
             #Debugging stuff
-            printing_data = [tf.mean(v) for v in my_vars]
+            printing_data = ["Actor data"]+ [tf.reduce_mean(v) for v in self.my_vars]
             self.printer = tf.constant(0.0) 
             self.printer = tf.Print(self.printer, data=printing_data)
             #self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
@@ -169,7 +169,7 @@ class Critic(object):
                 self.optimize = optimize 
 
             self.printer = tf.constant(0.0)  
-            self.printer = tf.Print(self.printer, data=[tf.mean(v) for v in my_vars])  
+            self.printer = tf.Print(self.printer, data=["Critic data"] + [tf.reduce_mean(v) for v in self.my_vars])  
             #self.printer = tf.Print(self.printer, data=['Ciritic data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
             self.global_critic = global_critic
         

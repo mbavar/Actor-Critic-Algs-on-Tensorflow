@@ -203,11 +203,19 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
         with tf.train.MonitoredTrainingSession(master=server.target) as sess:
             i, gstep = 0, 0 
             while not sess.should_stop() and gstep < MAX_SAMPLES:
+                if i % 10 == 5:
+                    print('Printing before sync data')
+                    local_actor.printoo(obs=ep_obs, sess=sess)
+                gstep = sync_global_and_local(sess)
+                if i % 10 == 5:
+                    print('Printing after sync data')
+                    local_actor.printoo(obs=ep_obs, sess=sess)
+                
                 ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
                 ep_unproc_obs = []
                 ep_rews = []
                 tot_rews, rolls = 0, 0
-                gstep = sync_global_and_local(sess) 
+
                 while len(ep_rews)<EP_LENGTH_STOP:
                     path = rollout(env=env, sess= sess, policy=local_actor.act, 
                                    max_path_length=MAX_PATH_LENGTH, framer=framer,
