@@ -61,11 +61,12 @@ class Actor(object):
             obs_scaled = ob_scaler(self.ob)
             x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
             x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
+            x2 = tf.layers.dense(name='third',  inputs=x1, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
             self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
             self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
             if act_type == 'cont':            
-                mu = ac_scaler(tf.layers.dense(name='third_layer', inputs=x1, units=num_ac, activation=tf.nn.tanh)) * 2.
+                mu = ac_scaler(tf.layers.dense(name='mu_layer', inputs=x2, units=num_ac, activation=tf.nn.tanh)) * 2.
                 #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
                 log_std = tf.Variable(initial_value=tf.constant([0.0]* num_ac), name='log_std')
                 #log_std = tf.clip_by_value(log_std, -2.5, 2.5)
@@ -76,7 +77,7 @@ class Actor(object):
                 logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - tf.reduce_sum(log_std)
                 printing_data = ['Actor Baic Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
             else:
-                logits = tf.layers.dense(name='logits', inputs=x1, units=num_ac) + 1e-8
+                logits = tf.layers.dense(name='logits', inputs=x2, units=num_ac) + 1e-8
                 self.ac = categorical_sample_logits(logits)
                 logps = tf.nn.log_softmax(logits)
                 self.logp = fancy_slice_2d(logps, tf.range(tf.shape(self.ac)[0]), self.ac)
@@ -154,10 +155,11 @@ class Critic(object):
         with tf.variable_scope(name):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             obs_scaled = ob_scaler(self.obs)
-            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
-            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=32, activation=tf.nn.relu, kernel_initializer=xavier)
+            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
+            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
+            x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
             #x2 = dense(name='third_layer', inp=x1, activation= tf.nn.relu, in_dim=16, out_dim=16)
-            self.v = v = tf.layers.dense(name='value', inputs=x1, units=1)
+            self.v = v = tf.layers.dense(name='value', inputs=x2, units=1)
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
             self.v_ = v_ = tf.placeholder(shape=[None], dtype=tf.float32)
             self.loss = tf.reduce_mean(tf.square(v-v_))

@@ -106,7 +106,7 @@ def sync_local_to_global(local_scope, global_scope):
 
 
 
-def train_ciritic(critic,  sess, batch_size, repeat, obs, targets , syncer):
+def train_ciritic(critic,  sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
     pre_preds = critic.value(obs, sess=sess)
@@ -125,7 +125,7 @@ def train_ciritic(critic,  sess, batch_size, repeat, obs, targets , syncer):
 
 
 
-def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs, syncer):
+def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
     n = len(obs)
@@ -184,12 +184,12 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                                            global_critic=global_critic)
             local_actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, 
                                         name='local_actor_{}'.format(task_id), global_actor=global_actor, global_step=global_step) 
-            sync_actors = sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
-            sync_critics = sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
+            #sync_actors = sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
+            #sync_critics = sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
         
-        def sync_global_and_local(sess):
-            sess.run([sync_actors, sync_critics])
-            return sess.run(global_step)
+        #def sync_global_and_local(sess):
+        #    sess.run([sync_actors, sync_critics])
+        #    return sess.run(global_step)
 
         #with supervisor.managed_session(server.target) as sess, sess.as_default():
         local_init_op = tf.global_variables_initializer()
@@ -249,10 +249,9 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     print('Some rews', ep_rews[perm])
                 """
                 
-                cir_loss, ev_before, ev_after = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals,
-                                                              syncer=sync_global_and_local)
+                cir_loss, ev_before, ev_after = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals,)
                 act_loss = train_actor(actor=local_actor, sess=sess, batch_size=BATCH, repeat=MULT, obs=ep_obs, 
-                                       advs=ep_advs, acs=ep_acs, logps=ep_logps, syncer=sync_global_and_local)
+                                       advs=ep_advs, acs=ep_acs, logps=ep_logps)
                 #if TB_log:
                 #    summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_obs[:1000], critic.obs:ep_obs[:1000]})
                 #    writer.add_summary(summ,i)

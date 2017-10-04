@@ -93,7 +93,7 @@ class Actor(object):
             self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
 
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
-            self.loss = self.rew_loss  +  self.beta * self.p_dist
+            self.loss = self.rew_loss  #+  self.beta * self.p_dist
             adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             grads_and_vars =  adam.compute_gradients(self.loss)
             grads_and_vars = [ (fancy_clip(g, -1., 1.), v) for g,v in grads_and_vars]

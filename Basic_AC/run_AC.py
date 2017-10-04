@@ -5,7 +5,7 @@ import util as U
 import argparse
 from scipy import signal
 
-import Policies1 as pol
+import Policies as pol
 
 def discount(x, gamma):
     ret = np.array(signal.lfilter([1],[1,-gamma],x[::-1], axis=0)[::-1])
@@ -167,7 +167,7 @@ max_lr, min_lr = 1. , 1e-6
 env = gym.make(args.env)
 framer = Framer(frame_num=FRAMES)
 ob_dim = env.observation_space.shape[0] * FRAMES
-critic = pol.Critic(num_ob_feat=ob_dim*2+4)
+critic = pol.Critic(num_ob_feat=ob_dim)
 rew_to_advs =  PathAdv(gamma=0.98, look_ahead=10)
 logger = U.Logger(logfile=LOG_FILE)
 np.random.seed(args.seed)
@@ -193,15 +193,14 @@ with tf.Session() as sess:
     sess.run(tf.initialize_all_variables())
     for i in range(ITER):
         ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
-        ep_unproc_obs = []
         ep_rews = []
         tot_rews, j = 0, 0
         while len(ep_rews)<EP_LENGTH_STOP:
             path = rollout(env=env, sess= sess, policy=actor.act, 
                            max_path_length=MAX_PATH_LENGTH, framer=framer,
                            render= j==0 and  i % 20 == 0 and ANIMATE)
-            obs_aug = framer.full(ob_feature_augment(path['obs']))
-            ep_unproc_obs += framer.full(path['obs'][:-1])
+            obs_aug = framer.full(path['obs'])
+            #ep_unproc_obs += framer.full(path['obs'][:-1])
             ep_obs += obs_aug[:-1]
             ep_logps += path['logps']
             ep_acs += path['acs']
@@ -215,15 +214,15 @@ with tf.Session() as sess:
             tot_rews += sum(path['rews'])
 
             if j ==0 and i%10 ==0:
-                actor.printoo(obs=ep_unproc_obs, sess=sess)
+                actor.printoo(obs=ep_obs, sess=sess)
                 critic.printoo(obs=ep_obs, sess=sess)
                 print('Path length %d' % len(path['rews']))
                 print('Terminated {}'.format(path['terminated']))
             j +=1
 
         avg_rew = float(tot_rews)/ j  
-        ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs, ep_rews, ep_unproc_obs = U.make_np(ep_obs, ep_advs, ep_logps, 
-                                                                                ep_target_vals, ep_acs, ep_rews, ep_unproc_obs)
+        ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs, ep_rews = U.make_np(ep_obs, ep_advs, ep_logps, 
+                                                                                ep_target_vals, ep_acs, ep_rews)
         ep_advs.reshape(-1)
         ep_target_vals.reshape(-1)
         ep_advs = (ep_advs - np.mean(ep_advs))/ (1e-8+ np.std(ep_advs))
@@ -240,7 +239,7 @@ with tf.Session() as sess:
         
         cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
         act_loss1, act_loss2, act_loss_full = train_actor(actor=actor, sess=sess, 
-                                                         batch_size=BATCH, repeat=MULT, obs=ep_unproc_obs, 
+                                                         batch_size=BATCH, repeat=MULT, obs=ep_obs, 
                                                           advs=ep_advs, acs=ep_acs, logps=ep_logps)
         if args.tboard:
             summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_unproc_obs[:1000], critic.obs:ep_obs[:1000]})
@@ -251,6 +250,8 @@ with tf.Session() as sess:
                 avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after,act_lr=act_lr, print_tog= (i %20) == 0)
         if i % 100 == 50:
             logger.write()
+
+        """
         if act_loss2 < desired_kl/4:
             new_lr = min(max_lr,act_lr*1.5)
 
@@ -258,6 +259,7 @@ with tf.Session() as sess:
         elif act_loss2 > desired_kl * 4:
             new_lr = max(min_lr,act_lr/1.5)
             actor.set_opt_param(sess=sess, new_lr=new_lr)
+        """
 
 
 del logger
