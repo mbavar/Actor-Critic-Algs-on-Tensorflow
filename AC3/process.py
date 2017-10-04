@@ -109,7 +109,7 @@ def sync_local_to_global(local_scope, global_scope):
 def train_ciritic(critic,  sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
-    pre_preds = critic.value(obs, sess=sess)
+    pre_preds = critic.global_critic.value(obs, sess=sess)
     ev_before = var_accounted_for(targets, pre_preds)
     tot_loss = 0.0
     l = int(repeat*len(obs)/batch_size+1)
@@ -118,7 +118,7 @@ def train_ciritic(critic,  sess, batch_size, repeat, obs, targets):
         high = min(low+batch_size, n)
         loss, _ = critic.optimize(obs=obs[low:high], targets=targets[low:high],sess=sess)
         tot_loss += loss
-    post_preds = critic.value(obs, sess=sess)
+    post_preds = critic.global_critic.value(obs, sess=sess)
     ev_after = var_accounted_for(targets, post_preds)
     return tot_loss/ l, ev_before, ev_after
 
@@ -216,7 +216,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     ep_obs += obs_aug[:-1]
                     ep_logps += path['logps']
                     ep_acs += path['acs']
-                    obs_vals = local_critic.value(obs=obs_aug, sess=sess).reshape(-1)
+                    obs_vals = global_critic.value(obs=obs_aug, sess=sess).reshape(-1)   #very important for this to be the global critics
                     target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terminated'], vals=obs_vals)
                     ep_target_vals += list(target_val)
                     ep_advs += list(advs)

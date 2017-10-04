@@ -74,7 +74,7 @@ class Actor(object):
                 self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - tf.reduce_sum(log_std)
                 self.ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)
                 logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - tf.reduce_sum(log_std)
-                printing_data = ['Actor Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
+                #printing_data = ['Actor Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
             else:
                 logits = tf.layers.dense(name='logits', inputs=x1, units=num_ac) + 1e-8
                 self.ac = categorical_sample_logits(logits)
@@ -83,7 +83,7 @@ class Actor(object):
                 self.ac_hist = tf.placeholder(shape=[None], dtype=tf.int32)
                 logp_newpolicy_oldac = fancy_slice_2d(logps, tf.range(tf.shape(self.ac_hist)[0]), self.ac_hist)
                 mu = logits
-                printing_data = ['Actor Data',  tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
+                #printing_data = ['Actor Data',  tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
 
             self.rew_loss = -tf.reduce_mean(self.adv * logp_newpolicy_oldac) 
             self.p_dist = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
@@ -114,9 +114,10 @@ class Actor(object):
                     return sess.run(lr_assign, feed_dict={new_lr:val})
                 self._lr_update = _lr_update
             #Debugging stuff
+            printing_data = [tf.mean(v) for v in my_vars]
             self.printer = tf.constant(0.0) 
             self.printer = tf.Print(self.printer, data=printing_data)
-            self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
+            #self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
 
 
     def act(self, ob, sess):
@@ -167,8 +168,10 @@ class Critic(object):
                         return sess.run([self.loss, self.opt_op], feed_dict=feed_dict)
                 self.optimize = optimize 
 
-            self.printer = tf.constant(0.0)    
-            self.printer = tf.Print(self.printer, data=['Ciritic data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
+            self.printer = tf.constant(0.0)  
+            self.printer = tf.Print(self.printer, data=[tf.mean(v) for v in my_vars])  
+            #self.printer = tf.Print(self.printer, data=['Ciritic data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
+            self.global_critic = global_critic
         
     def value(self, obs, sess):
         return sess.run(self.v, feed_dict={self.obs:obs})
