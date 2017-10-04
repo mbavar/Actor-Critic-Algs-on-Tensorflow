@@ -59,8 +59,8 @@ class Actor(object):
         with tf.variable_scope(name):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             obs_scaled = ob_scaler(self.ob)
-            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.elu, kernel_initializer=xavier)
-            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.elu, kernel_initializer=xavier)
+            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
+            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
             self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
             self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
@@ -68,13 +68,13 @@ class Actor(object):
                 mu = ac_scaler(tf.layers.dense(name='third_layer', inputs=x1, units=num_ac, activation=tf.nn.tanh)) * 2.
                 #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
                 log_std = tf.Variable(initial_value=tf.constant([0.0]* num_ac), name='log_std')
-                log_std = tf.clip_by_value(log_std, -2.5, 2.5)
-                std = tf.exp(log_std) 
+                #log_std = tf.clip_by_value(log_std, -2.5, 2.5)
+                std = tf.exp(log_std) + 1e-8
                 self.ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
                 self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - tf.reduce_sum(log_std)
                 self.ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)
                 logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - tf.reduce_sum(log_std)
-                #printing_data = ['Actor Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
+                printing_data = ['Actor Baic Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
             else:
                 logits = tf.layers.dense(name='logits', inputs=x1, units=num_ac) + 1e-8
                 self.ac = categorical_sample_logits(logits)
@@ -83,7 +83,7 @@ class Actor(object):
                 self.ac_hist = tf.placeholder(shape=[None], dtype=tf.int32)
                 logp_newpolicy_oldac = fancy_slice_2d(logps, tf.range(tf.shape(self.ac_hist)[0]), self.ac_hist)
                 mu = logits
-                #printing_data = ['Actor Data',  tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
+                printing_data = ['Actor Basic Data',  tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
 
             self.rew_loss = -tf.reduce_mean(self.adv * logp_newpolicy_oldac) 
             self.oldnew_kl = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
@@ -94,11 +94,12 @@ class Actor(object):
             self.my_optimizer = adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
-            grads_clipped = [tf.clip_by_value(g, -0.1, 0.1) for g,_ in grads_and_vars]
-            self.my_vars = [v for _,v in grads_and_vars]
+            #grads_clipped = [tf.clip_by_value(g, -0.1, 0.1) for g,_ in grads_and_vars]
+            grads_clipped = [g for g,_ in grads_and_vars]
 
             if global_actor is not None:
-                grads_and_vars = zip(grads_clipped, global_actor.my_vars)
+                #grads_and_vars = zip(grads_clipped, global_actor.my_vars)
+                grads_and_vars = zip(grads_clipped, my_vars)
                 self.opt_op =adam.apply_gradients(grads_and_vars)
                 def optimize(acs, obs, advs, logps, sess):
                     feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
@@ -115,9 +116,10 @@ class Actor(object):
                     return sess.run(lr_assign, feed_dict={new_lr:val})
                 self._lr_update = _lr_update
             #Debugging stuff
-            printing_data = ["Actor data"]+ [tf.reduce_mean(v) for v in self.my_vars]
+            printing_data2 = ["Actor Variable data"]+ [tf.reduce_mean(v) for v in self.my_vars]
             self.printer = tf.constant(0.0) 
             self.printer = tf.Print(self.printer, data=printing_data)
+            self.printer = tf.Print(self.printer, data=printing_data2)
             
             #self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
     def get_kl(self, sess, logp_feeds, obs, acs):
@@ -163,9 +165,11 @@ class Critic(object):
             self.my_optimizer = adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
-            grads_clipped = [tf.clip_by_value(g, -1., 1.) for g,_ in grads_and_vars]
+            #grads_clipped = [tf.clip_by_value(g, -1., 1.) for g,_ in grads_and_vars
+            grads_clipped = [g for g,_ in grads_and_vars]            
             if global_critic is not None:    
-                grads_and_vars = zip(grads_clipped, global_critic.my_vars)
+                #grads_and_vars = zip(grads_clipped, global_critic.my_vars)
+                grads_and_vars = zip(grads_clipped, my_vars)
                 self.opt_op = adam.apply_gradients(grads_and_vars)
                 def optimize(obs, targets, sess):
                         feed_dict={self.obs:obs, self.v_: targets}
@@ -173,8 +177,8 @@ class Critic(object):
                 self.optimize = optimize 
 
             self.printer = tf.constant(0.0)  
-            self.printer = tf.Print(self.printer, data=["Critic data"] + [tf.reduce_mean(v) for v in self.my_vars])  
-            #self.printer = tf.Print(self.printer, data=['Ciritic data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
+            self.printer = tf.Print(self.printer, data=["Critic Variable data"] + [tf.reduce_mean(v) for v in self.my_vars])  
+            self.printer = tf.Print(self.printer, data=['Ciritic Basic data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
             self.global_critic = global_critic
         
     def value(self, obs, sess):

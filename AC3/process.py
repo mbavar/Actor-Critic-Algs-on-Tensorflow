@@ -106,10 +106,10 @@ def sync_local_to_global(local_scope, global_scope):
 
 
 
-def train_ciritic(critic,  sess, batch_size, repeat, obs, targets):
+def train_ciritic(critic,  sess, batch_size, repeat, obs, targets , syncer):
     assert len(obs) == len(targets)
     n = len(obs)
-    pre_preds = critic.global_critic.value(obs, sess=sess)
+    pre_preds = critic.value(obs, sess=sess)
     ev_before = var_accounted_for(targets, pre_preds)
     tot_loss = 0.0
     l = int(repeat*len(obs)/batch_size+1)
@@ -117,14 +117,15 @@ def train_ciritic(critic,  sess, batch_size, repeat, obs, targets):
         low = (i* batch_size) % n
         high = min(low+batch_size, n)
         loss, _ = critic.optimize(obs=obs[low:high], targets=targets[low:high],sess=sess)
+        #syncer(sess)
         tot_loss += loss
-    post_preds = critic.global_critic.value(obs, sess=sess)
+    post_preds = critic.value(obs, sess=sess)
     ev_after = var_accounted_for(targets, post_preds)
     return tot_loss/ l, ev_before, ev_after
 
 
 
-def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
+def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs, syncer):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
     n = len(obs)
@@ -134,6 +135,7 @@ def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
         low = (i* batch_size) % n
         high = min(low+batch_size, n)
         batch_loss, _ = actor.optimize(sess=sess, obs=obs[low:high], acs=acs[low:high],  advs=advs[low:high], logps=logps[low:high])
+        #syncer(sess)
         tot_loss += batch_loss
     actor.update_global_step(sess=sess, batch_size=n)
     return  tot_loss/l
@@ -214,7 +216,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     ep_obs += obs_aug[:-1]
                     ep_logps += path['logps']
                     ep_acs += path['acs']
-                    obs_vals = global_critic.value(obs=obs_aug, sess=sess).reshape(-1)   #very important for this to be the global critics
+                    obs_vals = local_critic.value(obs=obs_aug, sess=sess).reshape(-1)   #very important for this to be the global critics
                     target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terminated'], vals=obs_vals)
                     ep_target_vals += list(target_val)
                     ep_advs += list(advs)
@@ -247,17 +249,17 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     print('Some rews', ep_rews[perm])
                 """
                 
-                cir_loss, ev_before, ev_after = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
-                act_loss = train_actor(actor=local_actor, sess=sess, 
-                                                                 batch_size=BATCH, repeat=MULT, obs=ep_obs, 
-                                                                  advs=ep_advs, acs=ep_acs, logps=ep_logps)
+                cir_loss, ev_before, ev_after = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals,
+                                                              syncer=sync_global_and_local)
+                act_loss = train_actor(actor=local_actor, sess=sess, batch_size=BATCH, repeat=MULT, obs=ep_obs, 
+                                       advs=ep_advs, acs=ep_acs, logps=ep_logps, syncer=sync_global_and_local)
                 #if TB_log:
                 #    summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_obs[:1000], critic.obs:ep_obs[:1000]})
                 #    writer.add_summary(summ,i)
                 #logz
                 #Syncing, KL, change of learning rate
 
-                gstep = sync_global_and_local(sess)
+                #gstep = sync_global_and_local(sess)
                 kl_dist =  local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
                 act_lr, _ = local_actor.get_opt_param(sess)
                 """
