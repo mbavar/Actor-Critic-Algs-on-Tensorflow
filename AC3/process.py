@@ -258,15 +258,16 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                 #Syncing, KL, change of learning rate
 
                 gstep = sync_global_and_local(sess)
-                kl_dist = local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
+                kl_dist =  local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
                 act_lr, _ = local_actor.get_opt_param(sess)
+                """
                 if kl_dist < desired_kl/5:
                     new_lr = min(max_lr,act_lr*1.5)
                     local_actor.set_opt_param(sess=sess, new_lr=new_lr)
                 elif kl_dist > desired_kl * 5:
                     new_lr = max(min_lr,act_lr/1.5)
                     local_actor.set_opt_param(sess=sess, new_lr=new_lr)
-
+                """
 
                 logger(i, act_loss=act_loss, worker_id = task_id, act_lr=act_lr, kl_dist=kl_dist, circ_loss=np.sqrt(cir_loss), avg_rew=avg_rew, 
                        ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
