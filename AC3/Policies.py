@@ -96,10 +96,10 @@ class Actor(object):
             self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
             grads_clipped = [tf.clip_by_value(g, -.1, .1) for g,_ in grads_and_vars]
-            
+
             if global_actor is not None:
+                print('Printing length of variables', len(global_actor.my_vars), len(my_vars))
                 grads_and_vars = zip(grads_clipped, global_actor.my_vars)
-                #grads_and_vars = zip(grads_clipped, my_vars)
                 self.opt_op =adam.apply_gradients(grads_and_vars)
                 def optimize(acs, obs, advs, logps, sess):
                     feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
@@ -115,6 +115,8 @@ class Actor(object):
                 def _lr_update(sess, val):
                     return sess.run(lr_assign, feed_dict={new_lr:val})
                 self._lr_update = _lr_update
+                self._global_syncer = [tf.assign(v_l, v_g) for v_l, v_g in zip(my_vars, global_actor.my_vars) ]
+
             #Debugging stuff
             printing_data2 = ["Actor Variable data"]+ [tf.reduce_mean(v) for v in self.my_vars]
             self.printer = tf.constant(0.0) 
@@ -132,6 +134,9 @@ class Actor(object):
             ob = ob[None]
         ac, logp =  sess.run([self.ac, self.logp], feed_dict={self.ob:ob})
         return ac[0], logp[0]
+
+    def sync_w_global(self, sess):
+        return sess.run(self._global_syncer)
        
     def set_opt_param(self, sess, new_lr=None, new_beta=None):
         feed_dict = dict()
@@ -175,11 +180,15 @@ class Critic(object):
                         feed_dict={self.obs:obs, self.v_: targets}
                         return sess.run([self.loss, self.opt_op], feed_dict=feed_dict)
                 self.optimize = optimize 
+                self._global_syncer = [tf.assign(v_l, v_g) for v_l, v_g in zip(my_vars, global_critic.my_vars) ]
 
             self.printer = tf.constant(0.0)  
             self.printer = tf.Print(self.printer, data=["Critic Variable data"] + [tf.reduce_mean(v) for v in self.my_vars])  
             self.printer = tf.Print(self.printer, data=['Ciritic Basic data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
             self.global_critic = global_critic
+
+    def sync_w_global(self, sess):
+        return sess.run(self._global_syncer)
         
     def value(self, obs, sess):
         return sess.run(self.v, feed_dict={self.obs:obs})

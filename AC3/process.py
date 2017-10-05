@@ -176,18 +176,10 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
         
 
         with tf.device(worker_device):
-            local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id), 
-                                           global_critic=global_critic)
+            local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id), global_critic=global_critic)
             local_actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, 
-                                        name='local_actor_{}'.format(task_id), global_actor=global_actor, global_step=global_step) 
-            sync_actors = sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
-            sync_critics = sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
-        
-        def sync_global_and_local(sess):
-            sess.run([sync_actors, sync_critics])
-            return sess.run(global_step)
+                                    name='local_actor_{}'.format(task_id), global_actor=global_actor, global_step=global_step) 
 
-        #with supervisor.managed_session(server.target) as sess, sess.as_default():
         local_init_op = tf.global_variables_initializer()
         with tf.Session(server.target) as sess:
                 sess.run(local_init_op)
@@ -249,7 +241,8 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                 cir_loss, ev_before = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals,)
                 act_loss = train_actor(actor=local_actor, sess=sess, batch_size=BATCH, repeat=MULT, obs=ep_obs, 
                                        advs=ep_advs, acs=ep_acs, logps=ep_logps)
-                gstep = sync_global_and_local(sess)
+                local_actor.sync_w_global(sess)
+                local_critic.sync_w_global(sess)
                 ev_after =  var_accounted_for(obs=ep_obs, target=ep_target_vals, sess=sess, critic=local_critic)
                 kl_dist =  local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
                 act_lr, _ = local_actor.get_opt_param(sess)
