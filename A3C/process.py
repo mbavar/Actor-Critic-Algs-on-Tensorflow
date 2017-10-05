@@ -221,29 +221,21 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                 ep_target_vals.reshape(-1)
                 ep_advs = (ep_advs - np.mean(ep_advs))/ (1e-8+ np.std(ep_advs))
                 """
-                if i%10 ==0:
-                    print('Advantage mean & std {}, {}'.format(np.mean(ep_advs), np.std(ep_advs)))       
-                if i % 50 == 13:
+                if i%50 == 13:
                     perm = np.random.choice(len(ep_advs), size=20)
-                    print('Some obs', ep_obs[perm])
-                    print('Some acs', ep_obs[perm])
-                    print('Some advs', ep_obs[perm])
-                    print('Some rews', ep_rews[perm])
+                    print('Some preds', local_critic.value(sess=sess, obs=ep_obs[perm]))
+                    print('Some target vals', ep_target_vals[perm])
+                if i % 100 == 43:
+                    print('Before sync. Local and then Global Critic.')
+                    local_critic.printoo(obs=ep_obs, sess=sess)
+                    global_critic.printoo(obs=ep_obs, sess=sess)
                 """
-
                 cir_loss, ev_before = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals,)
                 act_loss = train_actor(actor=local_actor, sess=sess, batch_size=BATCH, repeat=MULT, obs=ep_obs, 
-                                       advs=ep_advs, acs=ep_acs, logps=ep_logps)         
-                if i % 10 == 5:
-                    print('Before sync. Local and then Global Critic.')
-                    local_actor.printoo(obs=ep_obs, sess=sess)
-                    global_actor.printoo(obs=ep_obs, sess=sess)
+                                       advs=ep_advs, acs=ep_acs, logps=ep_logps) 
+
                 local_actor.sync_w_global(sess)
-                local_critic.sync_w_global(sess)
-                if i % 10 == 5:
-                    print('After sync. Local and then Global Critic.')
-                    local_actor.printoo(obs=ep_obs, sess=sess)
-                    global_actor.printoo(obs=ep_obs, sess=sess)
+                local_critic.sync_w_global(sess)             
                 ev_after =  var_accounted_for(obs=ep_obs, target=ep_target_vals, sess=sess, critic=local_critic)
                 kl_dist =  local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
                 act_lr, _ = local_actor.get_opt_param(sess)

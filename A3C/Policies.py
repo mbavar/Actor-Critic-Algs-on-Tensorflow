@@ -52,7 +52,7 @@ def dense(name, inp, in_dim, out_dim, activation=None, initializer=xavier, summa
 
 
 class Actor(object):
-    def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 3e-5, init_beta = 1, 
+    def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 1e-4, init_beta = 1, 
                        ac_scaler=ID_FN, ob_scaler=ID_FN, ac_activation=ID_FN, global_actor=None, global_step=None):
         assert (global_actor == global_step == None) or ((global_actor is not None and global_step is not None))
         self.name = name
@@ -153,7 +153,7 @@ class Actor(object):
 
 
 class Critic(object):
-    def __init__(self, name, num_ob_feat, init_lr=1e-2, ob_scaler=ID_FN, global_critic=None):
+    def __init__(self, name, num_ob_feat, init_lr=1e-3, ob_scaler=ID_FN, global_critic=None):
         self.name = name
         with tf.variable_scope(name):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
@@ -162,7 +162,7 @@ class Critic(object):
             x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
             x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
             #x2 = dense(name='third_layer', inp=x1, activation= tf.nn.relu, in_dim=16, out_dim=16)
-            self.v = v = tf.layers.dense(name='value', inputs=x2, units=1)
+            self.v = v = tf.reshape(tf.layers.dense(name='value', inputs=x2, units=1), [-1])
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
             self.v_ = v_ = tf.placeholder(shape=[None], dtype=tf.float32)
             self.loss = tf.reduce_mean(tf.square(v-v_))

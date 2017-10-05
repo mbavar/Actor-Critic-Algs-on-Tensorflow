@@ -14,7 +14,7 @@ def main():
     parser.add_argument("--tboard", default=False)
     parser.add_argument("--worker_num",default=4, type=int)
     parser.add_argument("--ps_num", default=2, type=int)
-    parser.add_argument("--initport", default=8527)
+    parser.add_argument("--initport", default=8597)
     parser.add_argument("--checkpoint", default='./tmp/checkpoints/')
     args = parser.parse_args()
     
