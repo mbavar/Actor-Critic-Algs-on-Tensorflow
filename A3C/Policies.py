@@ -98,7 +98,6 @@ class Actor(object):
             grads_clipped = [tf.clip_by_value(g, -.1, .1) for g,_ in grads_and_vars]
 
             if global_actor is not None:
-                print('Printing length of variables', len(global_actor.my_vars), len(my_vars))
                 grads_and_vars = zip(grads_clipped, global_actor.my_vars)
                 self.opt_op =adam.apply_gradients(grads_and_vars)
                 def optimize(acs, obs, advs, logps, sess):
@@ -115,7 +114,7 @@ class Actor(object):
                 def _lr_update(sess, val):
                     return sess.run(lr_assign, feed_dict={new_lr:val})
                 self._lr_update = _lr_update
-                self._global_syncer = [tf.assign(v_l, v_g) for v_l, v_g in zip(my_vars, global_actor.my_vars) ]
+                self._global_syncer = [v_l.assign(v_g) for v_l, v_g in zip(my_vars, global_actor.my_vars) ]
 
             #Debugging stuff
             printing_data2 = ["Actor Variable data"]+ [tf.reduce_mean(v) for v in self.my_vars]
@@ -154,7 +153,7 @@ class Actor(object):
 
 
 class Critic(object):
-    def __init__(self, name, num_ob_feat, init_lr=1e-4, ob_scaler=ID_FN, global_critic=None):
+    def __init__(self, name, num_ob_feat, init_lr=1e-2, ob_scaler=ID_FN, global_critic=None):
         self.name = name
         with tf.variable_scope(name):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
@@ -172,15 +171,14 @@ class Critic(object):
             self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
             grads_clipped = [tf.clip_by_value(g, -.1, .1) for g,_ in grads_and_vars]            
-            if global_critic is not None:    
+            if global_critic is not None:
                 grads_and_vars = zip(grads_clipped, global_critic.my_vars)
-                grads_and_vars = zip(grads_clipped, my_vars)
                 self.opt_op = adam.apply_gradients(grads_and_vars)
                 def optimize(obs, targets, sess):
                         feed_dict={self.obs:obs, self.v_: targets}
                         return sess.run([self.loss, self.opt_op], feed_dict=feed_dict)
                 self.optimize = optimize 
-                self._global_syncer = [tf.assign(v_l, v_g) for v_l, v_g in zip(my_vars, global_critic.my_vars) ]
+                self._global_syncer = [v_l.assign(v_g) for v_l, v_g in zip(my_vars, global_critic.my_vars) ]
 
             self.printer = tf.constant(0.0)  
             self.printer = tf.Print(self.printer, data=["Critic Variable data"] + [tf.reduce_mean(v) for v in self.my_vars])  

@@ -8,7 +8,7 @@ from scipy import signal
 import Policies as pol
 
 MAX_PATH_LENGTH = 400
-BATCH = 128
+BATCH = 64
 MULT = 5
 LOG_ROUND = 10
 EP_LENGTH_STOP = 800
@@ -101,11 +101,6 @@ def rollout(env, sess, policy, framer, max_path_length=100, render=False):
     return path
 
 
-def sync_local_to_global(local_scope, global_scope):
-    local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=local_scope)
-    global_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=global_scope)   
-    return [tf.assign(v_l, v_g) for v_l, v_g in zip(local_vars, global_vars)]
-
 def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
@@ -115,10 +110,9 @@ def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
     for i in range(l):
         low = (i* batch_size) % n
         high = min(low+batch_size, n)
-        loss, _ = critic.optimize(obs=obs[low:high], targets=targets[low:high],sess=sess)
+        loss, _ = critic.optimize(obs=obs[low:high], targets=targets[low:high], sess=sess)
         tot_loss += loss
     return tot_loss/ l, ev_before
-
 
 
 def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
@@ -130,8 +124,7 @@ def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
     for i in range(l):
         low = (i* batch_size) % n
         high = min(low+batch_size, n)
-        batch_loss, _ = actor.optimize(sess=sess, obs=obs[low:high], acs=acs[low:high],  advs=advs[low:high], logps=logps[low:high])
-        #syncer(sess)
+        batch_loss, _ = actor.optimize(sess=sess, obs=obs[low:high], acs=acs[low:high], advs=advs[low:high], logps=logps[low:high])
         tot_loss += batch_loss
     actor.update_global_step(sess=sess, batch_size=n)
     return  tot_loss/l
@@ -213,8 +206,8 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     tot_rews += sum(path['rews'])
 
                     if rolls ==0 and i%10 ==0:
-                        local_actor.printoo(obs=ep_obs, sess=sess)
-                        local_critic.printoo(obs=ep_obs, sess=sess)
+                        #local_actor.printoo(obs=ep_obs, sess=sess)
+                        #local_critic.printoo(obs=ep_obs, sess=sess)
                         print('Global Step %d' % gstep)
                         print('Path length %d' % len(path['rews']))
                         print('Terminated {}'.format(path['terminated']))
@@ -237,12 +230,20 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     print('Some advs', ep_obs[perm])
                     print('Some rews', ep_rews[perm])
                 """
-                
+
                 cir_loss, ev_before = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals,)
                 act_loss = train_actor(actor=local_actor, sess=sess, batch_size=BATCH, repeat=MULT, obs=ep_obs, 
-                                       advs=ep_advs, acs=ep_acs, logps=ep_logps)
+                                       advs=ep_advs, acs=ep_acs, logps=ep_logps)         
+                if i % 10 == 5:
+                    print('Before sync. Local and then Global Critic.')
+                    local_actor.printoo(obs=ep_obs, sess=sess)
+                    global_actor.printoo(obs=ep_obs, sess=sess)
                 local_actor.sync_w_global(sess)
                 local_critic.sync_w_global(sess)
+                if i % 10 == 5:
+                    print('After sync. Local and then Global Critic.')
+                    local_actor.printoo(obs=ep_obs, sess=sess)
+                    global_actor.printoo(obs=ep_obs, sess=sess)
                 ev_after =  var_accounted_for(obs=ep_obs, target=ep_target_vals, sess=sess, critic=local_critic)
                 kl_dist =  local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
                 act_lr, _ = local_actor.get_opt_param(sess)
@@ -251,6 +252,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                        ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
                 if i % 100 == 50:
                     logger.write()
+                gstep = sess.run(global_step)
                 i += 1
 
         del logger
