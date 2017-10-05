@@ -95,12 +95,11 @@ class Actor(object):
             self.my_optimizer = adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
-            #grads_clipped = [tf.clip_by_value(g, -0.1, 0.1) for g,_ in grads_and_vars]
-            grads_clipped = [g for g,_ in grads_and_vars]
-
+            grads_clipped = [tf.clip_by_value(g, -.1, .1) for g,_ in grads_and_vars]
+            
             if global_actor is not None:
-                #grads_and_vars = zip(grads_clipped, global_actor.my_vars)
                 grads_and_vars = zip(grads_clipped, global_actor.my_vars)
+                #grads_and_vars = zip(grads_clipped, my_vars)
                 self.opt_op =adam.apply_gradients(grads_and_vars)
                 def optimize(acs, obs, advs, logps, sess):
                     feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
@@ -167,11 +166,10 @@ class Critic(object):
             self.my_optimizer = adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
-            #grads_clipped = [tf.clip_by_value(g, -1., 1.) for g,_ in grads_and_vars
-            grads_clipped = [g for g,_ in grads_and_vars]            
+            grads_clipped = [tf.clip_by_value(g, -.1, .1) for g,_ in grads_and_vars]            
             if global_critic is not None:    
-                #grads_and_vars = zip(grads_clipped, global_critic.my_vars)
                 grads_and_vars = zip(grads_clipped, global_critic.my_vars)
+                grads_and_vars = zip(grads_clipped, my_vars)
                 self.opt_op = adam.apply_gradients(grads_and_vars)
                 def optimize(obs, targets, sess):
                         feed_dict={self.obs:obs, self.v_: targets}

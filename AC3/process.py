@@ -24,13 +24,17 @@ def discount(x, gamma):
 def lrelu(x, alpha=0.2):
     return (1-alpha) * tf.nn.relu(x) + alpha * x
 
-def var_accounted_for(target, pred):
+def _var_accounter(target, pred):
     pred = pred.reshape(-1)
     target = target.reshape(-1)
     return 1- (np.var(target-pred)/ (np.var(target)+1e-8))  
     #target = target /  np.sqrt(np.sum(np.square(target)))
     #pred = pred/  np.sqrt(np.sum(np.square(pred)))
     #return np.sum(target * pred)
+
+def var_accounted_for(obs, target, sess, critic):
+    preds = critic.value(obs=obs, sess=sess)
+    return _var_accounter(pred=preds, target=target)
 
 class Framer(object):
     def __init__(self, frame_num):
@@ -102,25 +106,18 @@ def sync_local_to_global(local_scope, global_scope):
     global_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=global_scope)   
     return [tf.assign(v_l, v_g) for v_l, v_g in zip(local_vars, global_vars)]
 
-
-
-
 def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
-    pre_preds = critic.global_critic.value(obs, sess=sess)
-    ev_before = var_accounted_for(pred=pre_preds, target=targets, )
+    ev_before = var_accounted_for(obs=obs, target=targets, sess=sess, critic=critic)
     tot_loss = 0.0
     l = int(repeat*len(obs)/batch_size+1)
     for i in range(l):
         low = (i* batch_size) % n
         high = min(low+batch_size, n)
         loss, _ = critic.optimize(obs=obs[low:high], targets=targets[low:high],sess=sess)
-        #syncer(sess)
         tot_loss += loss
-    post_preds = critic.global_critic.value(obs, sess=sess)
-    ev_after = var_accounted_for(pred=post_preds, target=targets)
-    return tot_loss/ l, ev_before, ev_after
+    return tot_loss/ l, ev_before
 
 
 
@@ -171,28 +168,29 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
         with tf.device(tf.train.replica_device_setter(
             worker_device=worker_device,
             cluster=cluster,)):
-            #global_critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
-            #global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type)     
+            global_critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
+            global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type)     
             global_step = tf.Variable(initial_value=0, trainable=False, dtype=tf.int64) 
             global_vars = global_actor.my_vars + global_critic.my_vars 
             #saver = tf.train.Saver(var_list=global_vars, max_to_keep=3)
+        
 
         with tf.device(worker_device):
             local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id), 
                                            global_critic=global_critic)
             local_actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, 
-                                        name='local_actor_{}'.format(task_id), global_actor=None, global_step=global_step) 
-            #sync_actors = sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
-            #sync_critics = sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
+                                        name='local_actor_{}'.format(task_id), global_actor=global_actor, global_step=global_step) 
+            sync_actors = sync_local_to_global(local_scope=local_actor.name, global_scope=global_actor.name)
+            sync_critics = sync_local_to_global(local_scope=local_critic.name, global_scope=global_critic.name)
         
-        #def sync_global_and_local(sess):
-        #    sess.run([sync_actors, sync_critics])
-        #    return sess.run(global_step)
+        def sync_global_and_local(sess):
+            sess.run([sync_actors, sync_critics])
+            return sess.run(global_step)
 
         #with supervisor.managed_session(server.target) as sess, sess.as_default():
-        #local_init_op = tf.global_variables_initializer()
-        #with tf.Session(server.target) as sess:
-        #        sess.run(local_init_op)
+        local_init_op = tf.global_variables_initializer()
+        with tf.Session(server.target) as sess:
+                sess.run(local_init_op)
         print('\n\nREACHING THE MAIN LOOP TASK %d\n' % task_id)
         desired_kl, max_lr, min_lr = DESIRED_KL, MAX_LR, MIN_LR
         kl_dist, stupid_kl_dist = 0., 0.
@@ -228,7 +226,6 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                         print('Global Step %d' % gstep)
                         print('Path length %d' % len(path['rews']))
                         print('Terminated {}'.format(path['terminated']))
-                        print( 'Stupid Kl {} and KL {}'.format(stupid_kl_dist, kl_dist))
                         
                     rolls +=1
 
@@ -247,28 +244,16 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     print('Some acs', ep_obs[perm])
                     print('Some advs', ep_obs[perm])
                     print('Some rews', ep_rews[perm])
-                """    
-                cir_loss, ev_before, ev_after = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals,)
+                """
+                
+                cir_loss, ev_before = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals,)
                 act_loss = train_actor(actor=local_actor, sess=sess, batch_size=BATCH, repeat=MULT, obs=ep_obs, 
                                        advs=ep_advs, acs=ep_acs, logps=ep_logps)
-                #if TB_log:
-                #    summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_obs[:1000], critic.obs:ep_obs[:1000]})
-                #    writer.add_summary(summ,i)
-                #logz
-                #Syncing, KL, change of learning rate
-                stupid_kl_dist =  local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
                 gstep = sync_global_and_local(sess)
+                ev_after =  var_accounted_for(obs=ep_obs, target=ep_target_vals, sess=sess, critic=local_critic)
                 kl_dist =  local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
                 act_lr, _ = local_actor.get_opt_param(sess)
-                """
-                if kl_dist < desired_kl/5:
-                    new_lr = min(max_lr,act_lr*1.5)
-                    local_actor.set_opt_param(sess=sess, new_lr=new_lr)
-                elif kl_dist > desired_kl * 5:
-                    new_lr = max(min_lr,act_lr/1.5)
-                    local_actor.set_opt_param(sess=sess, new_lr=new_lr)
-                """
-
+               
                 logger(i, act_loss=act_loss, worker_id = task_id, act_lr=act_lr, kl_dist=kl_dist, circ_loss=np.sqrt(cir_loss), avg_rew=avg_rew, 
                        ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0)
                 if i % 100 == 50:
