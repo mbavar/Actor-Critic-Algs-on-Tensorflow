@@ -52,7 +52,7 @@ def dense(name, inp, in_dim, out_dim, activation=None, initializer=xavier, summa
 
 
 class Actor(object):
-    def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1, 
+    def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 3e-5, init_beta = 1, 
                        ac_scaler=ID_FN, ob_scaler=ID_FN, ac_activation=ID_FN, global_actor=None, global_step=None):
         assert (global_actor == global_step == None) or ((global_actor is not None and global_step is not None))
         self.name = name
@@ -61,7 +61,7 @@ class Actor(object):
             obs_scaled = ob_scaler(self.ob)
             x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
             x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
-            x2 = tf.layers.dense(name='third',  inputs=x1, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
+            x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
             self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
             self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
@@ -100,7 +100,7 @@ class Actor(object):
 
             if global_actor is not None:
                 #grads_and_vars = zip(grads_clipped, global_actor.my_vars)
-                grads_and_vars = zip(grads_clipped, my_vars)
+                grads_and_vars = zip(grads_clipped, global_actor.my_vars)
                 self.opt_op =adam.apply_gradients(grads_and_vars)
                 def optimize(acs, obs, advs, logps, sess):
                     feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
@@ -150,7 +150,7 @@ class Actor(object):
 
 
 class Critic(object):
-    def __init__(self, name, num_ob_feat, init_lr=0.005, ob_scaler=ID_FN, global_critic=None):
+    def __init__(self, name, num_ob_feat, init_lr=1e-4, ob_scaler=ID_FN, global_critic=None):
         self.name = name
         with tf.variable_scope(name):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
@@ -171,7 +171,7 @@ class Critic(object):
             grads_clipped = [g for g,_ in grads_and_vars]            
             if global_critic is not None:    
                 #grads_and_vars = zip(grads_clipped, global_critic.my_vars)
-                grads_and_vars = zip(grads_clipped, my_vars)
+                grads_and_vars = zip(grads_clipped, global_critic.my_vars)
                 self.opt_op = adam.apply_gradients(grads_and_vars)
                 def optimize(obs, targets, sess):
                         feed_dict={self.obs:obs, self.v_: targets}

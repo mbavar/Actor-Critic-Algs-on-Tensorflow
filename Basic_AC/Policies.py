@@ -146,9 +146,9 @@ class Critic(object):
         with tf.variable_scope('Critic'):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             x = tf.layers.dense(name='first_layer', inputs=self.obs, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
-            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=32, activation=tf.nn.relu, kernel_initializer=xavier)
-            #x2 = dense(name='third_layer', inp=x1, activation= tf.nn.relu, in_dim=16, out_dim=16)
-            v = tf.layers.dense(name='value', inputs=x1, units=1)
+            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
+            x2 = tf.layers.dense(name='third_layer', inputs=x1, activation= tf.nn.relu,  units=32)
+            v = tf.layers.dense(name='value', inputs=x2, units=1)
             v_ = tf.placeholder(shape=[None], dtype=tf.float32)
             self.loss = tf.reduce_mean(tf.square(v-v_))
             self.v, self.v_ =  v, v_

@@ -159,7 +159,7 @@ BATCH = 64
 MULT = 2
 LOG_ROUND = 10
 EP_LENGTH_STOP = 1200
-FRAMES = 2
+FRAMES = 3
 
 desired_kl = 0.002
 max_lr, min_lr = 1. , 1e-6
@@ -251,7 +251,7 @@ with tf.Session() as sess:
         if i % 100 == 50:
             logger.write()
 
-        """
+        
         if act_loss2 < desired_kl/4:
             new_lr = min(max_lr,act_lr*1.5)
 
@@ -259,7 +259,7 @@ with tf.Session() as sess:
         elif act_loss2 > desired_kl * 4:
             new_lr = max(min_lr,act_lr/1.5)
             actor.set_opt_param(sess=sess, new_lr=new_lr)
-        """
+        
 
 
 del logger
