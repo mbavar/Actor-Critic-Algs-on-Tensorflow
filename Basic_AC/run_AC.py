@@ -15,13 +15,14 @@ def lrelu(x, alpha=0.2):
     return (1-alpha) * tf.nn.relu(x) + alpha * x
 
 def var_accounted_for(target, pred):
-    pred = pred.reshape(-1)
-    target = target.reshape(-1)
-    return 1- (np.var(target-pred)/ (np.var(target)+1e-8))
+    pred, target = pred.reshape(-1),  target.reshape(-1)
+    pred = (pred - np.mean(pred))/np.std(pred)
+    target =  (target - np.mean(target))/np.std(target)
+    return np.mean(target * pred)
     
     #target = target /  np.sqrt(np.sum(np.square(target)))
     #pred = pred/  np.sqrt(np.sum(np.square(pred)))
-    #return np.sum(target * pred)
+    
 
 class Framer(object):
     def __init__(self, frame_num):
@@ -113,8 +114,8 @@ def train_ciritic(critic, sess, obs, targets):
 def train_actor(actor, sess, obs, advs, logps, acs):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
-    rew_loss, p_dist, comb_loss, _ = actor.optimize(sess=sess, obs=obs, acs=acs,  advs=advs, logps=logps) 
-    return rew_loss, p_dist, comb_loss
+    loss, _ = actor.optimize(sess=sess, obs=obs, acs=acs,  advs=advs, logps=logps) 
+    return loss
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--outdir", default='log.txt')
@@ -128,11 +129,9 @@ ANIMATE = args.animate
 
 MAX_PATH_LENGTH = 400
 ITER = 100000
-BATCH = 256
-MULT = 2
 LOG_ROUND = 10
 EP_LENGTH_STOP = 1200
-FRAMES = 3
+FRAMES = 2
 
 desired_kl = 0.002
 max_lr, min_lr = 1. , 1e-6
@@ -141,7 +140,7 @@ env = gym.make(args.env)
 framer = Framer(frame_num=FRAMES)
 ob_dim = env.observation_space.shape[0] * FRAMES
 critic = pol.Critic(num_ob_feat=ob_dim)
-rew_to_advs =  PathAdv(gamma=0.98, look_ahead=10)
+rew_to_advs =  PathAdv(gamma=0.98, look_ahead=40)
 logger = U.Logger(logfile=LOG_FILE)
 np.random.seed(args.seed)
 env.seed(args.seed)
@@ -199,39 +198,32 @@ with tf.Session() as sess:
         ep_advs.reshape(-1)
         ep_target_vals.reshape(-1)
         ep_advs = (ep_advs - np.mean(ep_advs))/ (1e-8+ np.std(ep_advs))
-        """
-        if i%10 ==0:
-            print('Advantage mean & std {}, {}'.format(np.mean(ep_advs), np.std(ep_advs)))       
+           
         if i % 50 == 13:
             perm = np.random.choice(len(ep_advs), size=20)
-            print('Some obs', ep_obs[perm])
-            print('Some acs', ep_obs[perm])
-            print('Some advs', ep_obs[perm])
-            print('Some rews', ep_rews[perm])
-        """
-        
+            print('Some targets', ep_target_vals[perm])
+            print('Some preds', critic.value(ep_obs[perm], sess=sess) )
+           
         cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, obs=ep_obs, targets=ep_target_vals)
-        act_loss1, act_loss2, act_loss_full = train_actor(actor=actor, sess=sess, obs=ep_obs, 
-                                                          advs=ep_advs, acs=ep_acs, logps=ep_logps)
+        act_loss = train_actor(actor=actor, sess=sess, obs=ep_obs, advs=ep_advs, acs=ep_acs, logps=ep_logps)
+
         if args.tboard:
             summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_unproc_obs[:1000], critic.obs:ep_obs[:1000]})
             writer.add_summary(summ,i)
         #logz
         act_lr, _ = actor.get_opt_param(sess)
-        logger(i, act_loss1=act_loss1, act_loss2=act_loss2,  act_loss_full=act_loss_full, circ_loss=np.sqrt(cir_loss), 
-                avg_rew=avg_rew, ev_before=ev_before, ev_after=ev_after,act_lr=act_lr, print_tog= (i %20) == 0)
-        if i % 100 == 50:
-            logger.write()
-
-        
-        if act_loss2 < desired_kl/4:
+        kl_dist = actor.get_kl(sess=sess, obs=ep_obs, logp_feeds=ep_logps, acs=ep_acs)
+        if kl_dist < desired_kl/4:
             new_lr = min(max_lr,act_lr*1.5)
 
             actor.set_opt_param(sess=sess, new_lr=new_lr)
-        elif act_loss2 > desired_kl * 4:
+        elif kl_dist > desired_kl * 4:
             new_lr = max(min_lr,act_lr/1.5)
             actor.set_opt_param(sess=sess, new_lr=new_lr)
-        
+        logger(i, act_loss=act_loss, circ_loss=np.sqrt(cir_loss), avg_rew=avg_rew, ev_before=ev_before, 
+               ev_after=ev_after,act_lr=act_lr, print_tog= (i %20) == 0, kl_dist=kl_dist)
+        if i % 100 == 50:
+            logger.write()     
 
 
 del logger

@@ -89,12 +89,11 @@ class Actor(object):
                 printing_data = ['Actor Data',  tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
 
             self.rew_loss = -tf.reduce_mean(self.adv * logp_newpolicy_oldac) 
-            self.p_dist = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
+            self.oldnew_kl = p_dist = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
             # Actual loss stuff. Can try to add action entropy here too
             self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
-
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
-            self.loss = self.rew_loss  #+  self.beta * self.p_dist
+            self.loss = self.rew_loss  +  self.beta * p_dist
             adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             grads_and_vars =  adam.compute_gradients(self.loss)
             grads_and_vars = [ (fancy_clip(g, -1., 1.), v) for g,v in grads_and_vars]
@@ -112,7 +111,9 @@ class Actor(object):
                 return sess.run(lr_assign, feed_dict={new_lr:val})
             self._lr_update = _lr_update
 
-
+    def get_kl(self, sess, logp_feeds, obs, acs):
+        feed_dict = {self.logp_feed:logp_feeds, self.ac_hist:acs, self.ob:obs}
+        return sess.run(self.oldnew_kl, feed_dict=feed_dict)
 
     def act(self, ob, sess):
         ob = np.array(ob)
@@ -123,7 +124,7 @@ class Actor(object):
     
     def optimize(self, acs, obs, advs, logps, sess):
         feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
-        return sess.run([self.rew_loss, self.p_dist, self.loss, self.opt], feed_dict=feed_dict)
+        return sess.run([self.loss, self.opt], feed_dict=feed_dict)
     
     def set_opt_param(self, sess, new_lr=None, new_beta=None):
         feed_dict = dict()
@@ -132,8 +133,6 @@ class Actor(object):
         if new_lr is not None:
             self._lr_update(sess=sess, val=new_lr)
         return self.get_opt_param(sess)
-            
-
         
     def get_opt_param(self, sess):
         return sess.run([self.lr, self.beta])
@@ -143,23 +142,24 @@ class Actor(object):
 
 
 class Critic(object):
-    def __init__(self, num_ob_feat, init_lr=0.005, ac_scale=2.0, ob_scale=[1.0, 1.0, 1.0]):
+    def __init__(self, num_ob_feat, init_lr=0.001, ac_scale=2.0, ob_scale=[1.0, 1.0, 1.0]):
         with tf.variable_scope('Critic'):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
-            x = tf.layers.dense(name='first_layer', inputs=self.obs, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
-            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
-            x2 = tf.layers.dense(name='third_layer', inputs=x1, activation= tf.nn.relu,  units=32)
-            v = tf.layers.dense(name='value', inputs=x2, units=1)
+            x = tf.layers.dense(name='first_layer', inputs=self.obs, units=256, activation=tf.nn.relu, kernel_initializer=xavier)
+            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
+            #x2 = tf.layers.dense(name='third_layer', inputs=x1, activation= tf.nn.relu,  units=48)
+            v = tf.layers.dense(name='value', inputs=x1, units=1)
+            v = tf.reshape(v, [-1])
             v_ = tf.placeholder(shape=[None], dtype=tf.float32)
             self.loss = tf.reduce_mean(tf.square(v-v_))
             self.v, self.v_ =  v, v_
         #optimization parts
             self.lr = tf.Variable(initial_value=init_lr,dtype=tf.float32, trainable=False)
             adam = tf.train.AdamOptimizer(learning_rate=self.lr)
-            grads_and_vars =  adam.compute_gradients(self.loss)
             self.opt = adam.minimize(self.loss)
             self.printer = tf.constant(0.0)    
             self.printer = tf.Print(self.printer, data=['Critic data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(v)])
+            grads_and_vars =  adam.compute_gradients(self.loss)
             for i, gv  in enumerate(grads_and_vars):
                 _, v = gv
                 variable_summaries(v, 'var_{}'.format(i))
