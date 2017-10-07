@@ -7,11 +7,11 @@ from scipy import signal
 
 import Policies as pol
 
-MAX_PATH_LENGTH = 400
+MAX_PATH_LENGTH = 200
 BATCH = 64
-MULT = 5
+MULT = 1
 LOG_ROUND = 10
-EP_LENGTH_STOP = 800
+EP_LENGTH_STOP = 600
 MAX_SAMPLES = 10000000
 DESIRED_KL = 0.04
 MAX_LR, MIN_LR = 1. , 1e-7
@@ -105,29 +105,17 @@ def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
     n = len(obs)
     ev_before = var_accounted_for(obs=obs, target=targets, sess=sess, critic=critic)
-    tot_loss = 0.0
-    l = int(repeat*len(obs)/batch_size+1)
-    for i in range(l):
-        low = (i* batch_size) % n
-        high = min(low+batch_size, n)
-        loss, _ = critic.optimize(obs=obs[low:high], targets=targets[low:high], sess=sess)
-        tot_loss += loss
-    return tot_loss/ l, ev_before
+    loss, _ = critic.optimize(obs=obs, targets=targets, sess=sess)
+    return loss, ev_before
 
 
 def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
     n = len(obs)
-    tot_loss = 0.0
-    l = int(repeat*len(obs)/batch_size+1)
-    for i in range(l):
-        low = (i* batch_size) % n
-        high = min(low+batch_size, n)
-        batch_loss, _ = actor.optimize(sess=sess, obs=obs[low:high], acs=acs[low:high], advs=advs[low:high], logps=logps[low:high])
-        tot_loss += batch_loss
+    batch_loss, _ = actor.optimize(sess=sess, obs=obs, acs=acs, advs=advs, logps=logps)
     actor.update_global_step(sess=sess, batch_size=n)
-    return  tot_loss/l
+    return  batch_loss
 
 
 def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=12321, gamma=0.98, look_ahead=6, 
@@ -184,7 +172,6 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
             i, gstep = 0, 0 
             while not sess.should_stop() and gstep < MAX_SAMPLES:
                 ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
-                ep_unproc_obs = []
                 ep_rews = []
                 tot_rews, rolls = 0, 0
 
@@ -205,13 +192,13 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     ep_rews += path['rews']
                     tot_rews += sum(path['rews'])
 
-                    if rolls ==0 and i%10 ==0:
-                        #local_actor.printoo(obs=ep_obs, sess=sess)
-                        #local_critic.printoo(obs=ep_obs, sess=sess)
+                
+                    if rolls ==0 and i%50 ==0:
+                        local_actor.printoo(obs=ep_obs, sess=sess)
+                        local_critic.printoo(obs=ep_obs, sess=sess)
                         print('Global Step %d' % gstep)
                         print('Path length %d' % len(path['rews']))
-                        print('Terminated {}'.format(path['terminated']))
-                        
+                        print('Terminated {}'.format(path['terminated']))       
                     rolls +=1
 
                 avg_rew = float(tot_rews)/ rolls  
@@ -246,6 +233,14 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     logger.write()
                 gstep = sess.run(global_step)
                 i += 1
+               
+                if kl_dist < desired_kl/4:
+                    new_lr = min(max_lr,act_lr*1.5)
+                    local_actor.set_opt_param(sess=sess, new_lr=new_lr)
+                elif kl_dist > desired_kl * 4:
+                    new_lr = max(min_lr,act_lr/1.5)
+                    local_actor.set_opt_param(sess=sess, new_lr=new_lr)
+                
 
         del logger
 

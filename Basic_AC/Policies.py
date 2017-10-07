@@ -68,14 +68,15 @@ class Actor(object):
             self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
             self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
             if act_type == 'cont':            
-                mu = tf.layers.dense(name='mu_layer', inputs=x2, units=num_ac, kernel_initializer=xav, activation=tf.nn.tanh) * 2.0
-                log_std = tf.Variable(name='log_std', initial_value=[0.]*num_ac) #tf.layers.dense(name='log_std', inputs=self.ob, units=num_ac,  kernel_initializer=normalized_column_initializer)
-                log_std = tf.clip_by_value(log_std, -2.5, 2.5)
+                mu = tf.layers.dense(name='mu_layer', inputs=x2, units=num_ac, kernel_initializer=xav, activation=tf.nn.tanh) * 2.
+                log_std = tf.Variable(initial_value=[0.]*num_ac)
+                log_std = tf.expand_dims(tf.clip_by_value(log_std, -2.5, 2.5), axis=0)
                 std = tf.exp(log_std)
+                #std = tf.layers.dense(name='std', inputs=x2, units=num_ac, kernel_initializer=xav, activation=tf.nn.softplus) + 1e-8
                 self.ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
-                self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - log_std
+                self.logp =  tf.reduce_sum(-tf.square((self.ac - mu)/std)/2.0, axis=1) - tf.reduce_sum(log_std, axis=1)
                 self.ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)
-                logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - log_std
+                logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - tf.reduce_sum(log_std, axis=1)
                 printing_data = ['Actor Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
             else:
                 logits = tf.layers.dense(name='logits', inputs=x1, units=num_ac) + 1e-8

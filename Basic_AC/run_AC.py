@@ -100,48 +100,21 @@ def ob_feature_augment(obs_path):
     return list(np.concatenate([obs_path, obs2, time, time2], axis=1))
 
 
-def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
+def train_ciritic(critic, sess, obs, targets):
     assert len(obs) == len(targets)
-    n = len(obs)
-    #perm = np.random.permutation(n)
-    #obs = obs[perm]
-    #targets = targets[perm]
-    #targets = targets.reshape(-1)
     pre_preds = critic.value(obs, sess=sess)
     ev_before = var_accounted_for(targets, pre_preds)
-    #print(np.mean(targets), np.mean(pre_preds))
-    #ev_before = var_accounted_for(targets, targets)
-    tot_loss = 0.0
-    l = int(repeat*len(obs)/batch_size+1)
-    for i in range(l):
-        low = (i* batch_size) % n
-        high = min(low+batch_size, n)
-        loss, _= critic.optimize(obs=obs[low:high], targets=targets[low:high],sess=sess)
-        tot_loss += loss
+    loss, _= critic.optimize(obs=obs, targets=targets, sess=sess)
     post_preds = critic.value(obs, sess=sess)
     ev_after = var_accounted_for(targets, post_preds)
-    #print(ev_before, ev_after)
-    return tot_loss/ l, ev_before, ev_after
+    return loss, ev_before, ev_after
 
 
-
-def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
+def train_actor(actor, sess, obs, advs, logps, acs):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
-    n = len(obs)
-    perm = np.random.permutation(n)
-    obs, advs, logps, acs = obs[perm], advs[perm], logps[perm], acs[perm]
-    tot_rew_loss, tot_p_dist, tot_comb_loss = 0.0, 0.0, 0.0 
-    l = int(repeat*len(obs)/batch_size+1)
-    for i in range(l):
-        low = (i* batch_size) % n
-        high = min(low+batch_size, n)
-        rew_loss, p_dist, comb_loss, _ = actor.optimize(sess=sess, obs=obs[low:high], acs=acs[low:high],  advs=advs[low:high], logps=logps[low:high])
-        tot_comb_loss += comb_loss
-        tot_p_dist += p_dist
-        tot_rew_loss += rew_loss
-    
-    return (tot_rew_loss/l, tot_p_dist/l, tot_comb_loss/l)
+    rew_loss, p_dist, comb_loss, _ = actor.optimize(sess=sess, obs=obs, acs=acs,  advs=advs, logps=logps) 
+    return rew_loss, p_dist, comb_loss
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--outdir", default='log.txt')
@@ -155,7 +128,7 @@ ANIMATE = args.animate
 
 MAX_PATH_LENGTH = 400
 ITER = 100000
-BATCH = 64
+BATCH = 256
 MULT = 2
 LOG_ROUND = 10
 EP_LENGTH_STOP = 1200
@@ -237,9 +210,8 @@ with tf.Session() as sess:
             print('Some rews', ep_rews[perm])
         """
         
-        cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals)
-        act_loss1, act_loss2, act_loss_full = train_actor(actor=actor, sess=sess, 
-                                                         batch_size=BATCH, repeat=MULT, obs=ep_obs, 
+        cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, obs=ep_obs, targets=ep_target_vals)
+        act_loss1, act_loss2, act_loss_full = train_actor(actor=actor, sess=sess, obs=ep_obs, 
                                                           advs=ep_advs, acs=ep_acs, logps=ep_logps)
         if args.tboard:
             summ, _, _ = sess.run([merged, actor.ac, critic.v], feed_dict={actor.ob: ep_unproc_obs[:1000], critic.obs:ep_obs[:1000]})
