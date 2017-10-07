@@ -11,17 +11,13 @@ def discount(x, gamma):
     ret = np.array(signal.lfilter([1],[1,-gamma],x[::-1], axis=0)[::-1])
     return ret
 
-def lrelu(x, alpha=0.2):
-    return (1-alpha) * tf.nn.relu(x) + alpha * x
+
 
 def var_accounted_for(target, pred):
     pred, target = pred.reshape(-1),  target.reshape(-1)
     pred = (pred - np.mean(pred))/np.std(pred)
     target =  (target - np.mean(target))/np.std(target)
     return np.mean(target * pred)
-    
-    #target = target /  np.sqrt(np.sum(np.square(target)))
-    #pred = pred/  np.sqrt(np.sum(np.square(pred)))
     
 
 class Framer(object):
@@ -136,6 +132,7 @@ FRAMES = 2
 desired_kl = 0.002
 max_lr, min_lr = 1. , 1e-6
 
+
 env = gym.make(args.env)
 framer = Framer(frame_num=FRAMES)
 ob_dim = env.observation_space.shape[0] * FRAMES
@@ -147,8 +144,9 @@ env.seed(args.seed)
 
 try: 
     ac_dim = env.action_space.shape[0]
-    actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type='cont')
-    print('Continuous Action Space')
+    ac_scale = np.maximum(env.action_space.high, np.abs(env.action_space.low))
+    actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type='cont', ac_scale=ac_scale)
+    print('Continuous Action Space. Action Scale is {}.'.format(ac_scale))
 except:
     print('Discrete Action Space')
     ac_n = env.action_space.n
@@ -198,11 +196,12 @@ with tf.Session() as sess:
         ep_advs.reshape(-1)
         ep_target_vals.reshape(-1)
         ep_advs = (ep_advs - np.mean(ep_advs))/ (1e-8+ np.std(ep_advs))
-           
+        """   
         if i % 50 == 13:
             perm = np.random.choice(len(ep_advs), size=20)
             print('Some targets', ep_target_vals[perm])
             print('Some preds', critic.value(ep_obs[perm], sess=sess) )
+        """
            
         cir_loss, ev_before, ev_after = train_ciritic(critic=critic, sess=sess, obs=ep_obs, targets=ep_target_vals)
         act_loss = train_actor(actor=actor, sess=sess, obs=ep_obs, advs=ep_advs, acs=ep_acs, logps=ep_logps)
@@ -215,7 +214,6 @@ with tf.Session() as sess:
         kl_dist = actor.get_kl(sess=sess, obs=ep_obs, logp_feeds=ep_logps, acs=ep_acs)
         if kl_dist < desired_kl/4:
             new_lr = min(max_lr,act_lr*1.5)
-
             actor.set_opt_param(sess=sess, new_lr=new_lr)
         elif kl_dist > desired_kl * 4:
             new_lr = max(min_lr,act_lr/1.5)

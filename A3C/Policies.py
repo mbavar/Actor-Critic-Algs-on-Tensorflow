@@ -46,24 +46,24 @@ def normalized_column_initializer(shape, dtype, partition_info):
 
 class Actor(object):
     def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 1e-4, init_beta = 1, 
-                       ac_scaler=ID_FN, ob_scaler=ID_FN, ac_activation=ID_FN, global_actor=None, global_step=None):
+                       ac_scale=2., ob_scaler=ID_FN, ac_activation=ID_FN, global_actor=None, global_step=None):
         assert (global_actor == global_step == None) or ((global_actor is not None and global_step is not None))
         self.name = name
         with tf.variable_scope(name):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             obs_scaled = ob_scaler(self.ob)
-            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.elu, kernel_initializer=xavier)
-            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.elu, kernel_initializer=xavier)
-            x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=64, activation=tf.nn.elu, kernel_initializer=xavier)
+            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=256, activation=tf.nn.elu, kernel_initializer=xavier)
+            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=tf.nn.elu, kernel_initializer=xavier)
+            x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=128, activation=tf.nn.elu, kernel_initializer=xavier)
             self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
             self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
             if act_type == 'cont':            
-                mu = ac_scaler(tf.layers.dense(name='mu_layer', inputs=x2, units=num_ac, activation=tf.nn.tanh)) * 2.
+                mu = ac_scaler(tf.layers.dense(name='mu_layer', inputs=x2, units=num_ac, activation=tf.nn.tanh)) * ac_scale
                 #log_std = dense(name='log', inp = ob, in_dim=num_ob_feat, out_dim=num_ac, initializer=xav)
                 log_std = tf.Variable(initial_value=tf.constant([0.0]* num_ac), name='log_std')
-                #log_std = tf.clip_by_value(log_std, -2.5, 2.5)
-                std = tf.exp(log_std) + 1e-8
+                log_std = tf.clip_by_value(log_std, -2.5, 2.5)
+                std = tf.exp(log_std) 
                 self.ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
                 self.logp =  tf.reduce_sum(- tf.square((self.ac - mu)/std)/2.0, axis=1) - tf.reduce_sum(log_std)
                 self.ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)

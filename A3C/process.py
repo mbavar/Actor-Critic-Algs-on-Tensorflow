@@ -21,16 +21,15 @@ def discount(x, gamma):
     ret = np.array(signal.lfilter([1],[1,-gamma],x[::-1], axis=0)[::-1])
     return ret
 
-def lrelu(x, alpha=0.2):
-    return (1-alpha) * tf.nn.relu(x) + alpha * x
 
 def _var_accounter(target, pred):
-    pred = pred.reshape(-1)
-    target = target.reshape(-1)
-    return 1- (np.var(target-pred)/ (np.var(target)+1e-8))  
-    #target = target /  np.sqrt(np.sum(np.square(target)))
-    #pred = pred/  np.sqrt(np.sum(np.square(pred)))
-    #return np.sum(target * pred)
+    pred, target = pred.reshape(-1),  target.reshape(-1)
+    pred = (pred - np.mean(pred))/np.std(pred)
+    target =  (target - np.mean(target))/np.std(target)
+    return np.mean(target * pred)
+    #pred = pred.reshape(-1)
+    #target = target.reshape(-1)
+    #return 1- (np.var(target-pred)/ (np.var(target)+1e-8))  
 
 def var_accounted_for(obs, target, sess, critic):
     preds = critic.value(obs=obs, sess=sess)
@@ -103,7 +102,6 @@ def rollout(env, sess, policy, framer, max_path_length=100, render=False):
 
 def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
     assert len(obs) == len(targets)
-    n = len(obs)
     ev_before = var_accounted_for(obs=obs, target=targets, sess=sess, critic=critic)
     loss, _ = critic.optimize(obs=obs, targets=targets, sess=sess)
     return loss, ev_before
@@ -112,7 +110,6 @@ def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
 def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
-    n = len(obs)
     batch_loss, _ = actor.optimize(sess=sess, obs=obs, acs=acs, advs=advs, logps=logps)
     actor.update_global_step(sess=sess, batch_size=n)
     return  batch_loss

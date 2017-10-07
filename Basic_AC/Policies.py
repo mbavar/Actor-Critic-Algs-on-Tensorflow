@@ -6,7 +6,6 @@ def xav(*t, dtype, partition_info):
 xavier = tf.contrib.layers.xavier_initializer()
 
 def variable_summaries(var, name=''):
-  """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
   with tf.variable_scope(name+'summaries'):
     mean = tf.reduce_mean(var)
     tf.summary.scalar('mean', mean)
@@ -16,6 +15,9 @@ def variable_summaries(var, name=''):
     tf.summary.scalar('max', tf.reduce_max(var))
     tf.summary.scalar('min', tf.reduce_min(var))
     #tf.summary.histogram('histogram', var)
+
+def lrelu(x, alpha=0.2):
+    return (1-alpha) * tf.nn.relu(x) + alpha * x
 
 
 def fancy_slice_2d(X, inds0, inds1):
@@ -62,13 +64,13 @@ class Actor(object):
                        ac_scale=2.0, ob_scale=[1.0, 1.0, 1.0]):
         with tf.variable_scope('Actor'):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
-            x = tf.layers.dense(name='first_layer', inputs=self.ob, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
-            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
-            x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=64, activation=tf.nn.relu, kernel_initializer=xavier)
+            x = tf.layers.dense(name='first_layer', inputs=self.ob, units=128, activation=lrelu, kernel_initializer=xavier)
+            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=lrelu, kernel_initializer=xavier)
+            x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=64, activation=lrelu, kernel_initializer=xavier)
             self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
             self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
             if act_type == 'cont':            
-                mu = tf.layers.dense(name='mu_layer', inputs=x2, units=num_ac, kernel_initializer=xav, activation=tf.nn.tanh) * 2.
+                mu = tf.layers.dense(name='mu_layer', inputs=x2, units=num_ac, kernel_initializer=xav, activation=tf.nn.tanh) * ac_scale
                 log_std = tf.Variable(initial_value=[0.]*num_ac)
                 log_std = tf.expand_dims(tf.clip_by_value(log_std, -2.5, 2.5), axis=0)
                 std = tf.exp(log_std)
@@ -104,7 +106,7 @@ class Actor(object):
             #Debugging stuff
             self.printer = tf.constant(0.0) 
             self.printer = tf.Print(self.printer, data=printing_data)
-            self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1),tf.reduce_mean(x2), tf.reduce_mean(mu)])
+            self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
             new_lr = tf.placeholder(dtype=tf.float32, shape=())
             lr_assign = tf.assign(self.lr, new_lr)
             def _lr_update(sess, val):
@@ -147,7 +149,7 @@ class Critic(object):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             x = tf.layers.dense(name='first_layer', inputs=self.obs, units=256, activation=tf.nn.relu, kernel_initializer=xavier)
             x1 = tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=tf.nn.relu, kernel_initializer=xavier)
-            #x2 = tf.layers.dense(name='third_layer', inputs=x1, activation= tf.nn.relu,  units=48)
+            x2 = tf.layers.dense(name='third_layer', inputs=x1, activation= tf.nn.relu,  units=128)
             v = tf.layers.dense(name='value', inputs=x1, units=1)
             v = tf.reshape(v, [-1])
             v_ = tf.placeholder(shape=[None], dtype=tf.float32)
