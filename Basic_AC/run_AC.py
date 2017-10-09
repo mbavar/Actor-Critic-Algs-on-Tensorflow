@@ -139,10 +139,11 @@ args = parser.parse_args()
 LOG_FILE = args.outdir
 ANIMATE = args.animate
 
-MAX_PATH_LENGTH = 400
-ITER = 100000
+MAX_ROLLS = 5
+MAX_PATH_LENGTH = 1600
+ITER = 1000000
 LOG_ROUND = 10
-EP_LENGTH_STOP = 1200
+EP_LENGTH_STOP = 3000
 FRAMES = 1
 
 desired_kl = 0.002
@@ -184,7 +185,7 @@ with tf.Session() as sess:
         ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
         ep_rews = []
         tot_rews, tot_ent, j = 0, 0, 0
-        while len(ep_rews)<EP_LENGTH_STOP:
+        while len(ep_rews)<EP_LENGTH_STOP and j<MAX_ROLLS:
             path = rollout(env=env, sess= sess, policy=actor.act, 
                            max_path_length=MAX_PATH_LENGTH, framer=framer,
                            render= j==0 and  i % 20 == 0 and ANIMATE)

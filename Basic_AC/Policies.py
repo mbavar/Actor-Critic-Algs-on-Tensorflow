@@ -19,40 +19,10 @@ def variable_summaries(var, name=''):
 def lrelu(x, alpha=0.2):
     return (1-alpha) * tf.nn.relu(x) + alpha * x
 
-
-def slice_2d(X, inds0, inds1):
-    """
-    like numpy X[inds0, inds1]
-    """
-    inds0 = tf.cast(inds0, tf.int64)
-    inds1 = tf.cast(inds1, tf.int64)
-    shape = tf.cast(tf.shape(X), tf.int64)
-    ncols = shape[1]
-    Xflat = tf.reshape(X, [-1])
-    return tf.gather(Xflat, inds0 * ncols + inds1)
-
 def fancy_clip(grad, low, high):
         if grad is None:
             return grad
         return tf.clip_by_value(grad, low, high)
-
-def categorical_sample_logits(X):
-    # https://github.com/tensorflow/tensorflow/issues/456
-    U = tf.random_uniform(tf.shape(X))
-    return tf.argmax(X - tf.log(-tf.log(U)), axis=1)
-
-def dense(name, inp, in_dim, units, activation=None, initializer=xavier, summary=True):
-    out_dim = inits
-    W = tf.get_variable(shape=[in_dim, out_dim], initializer=xavier, name=name+'weight', dtype=tf.float32)
-    b = tf.get_variable(initializer= tf.constant([0.0]*out_dim), name=name+'bias', dtype=tf.float32)
-    if summary:
-        variable_summaries(W, name+'weight')
-        variable_summaries(b, name+'bias')
-    lin_out = tf.matmul(inp, W) #+b
-    if activation is not None:
-        return activation(lin_out)
-    else:
-        return lin_out
 
 def normalized_column_initializer(shape, dtype, partition_info):
     u = tf.random_normal(shape=shape,dtype=tf.float32)
@@ -102,7 +72,7 @@ class Actor(object):
             self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
             self.gamma = tf.Variable(initial_value=init_gamma, dtype=tf.float32, trainable=False)
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
-            self.loss = self.rew_loss  +  self.beta * p_dist #- self.gamma * tf.reduce_mean(entropy)
+            self.loss = self.rew_loss  +  self.beta * p_dist - self.gamma * tf.reduce_mean(entropy)
             adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             grads_and_vars =  adam.compute_gradients(self.loss)
             grads_and_vars = [ (fancy_clip(g, -1., 1.), v) for g,v in grads_and_vars]

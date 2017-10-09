@@ -14,7 +14,7 @@ def main():
     parser.add_argument("--tboard", default=False)
     parser.add_argument("--worker_num",default=4, type=int)
     parser.add_argument("--ps_num", default=2, type=int)
-    parser.add_argument("--initport", default=8507)
+    parser.add_argument("--initport", default=9437)
     parser.add_argument("--checkpoint", default='./tmp/checkpoints/')
     args = parser.parse_args()
     
@@ -35,7 +35,7 @@ def main():
     logger = U.Logger(logfile=LOG_FILE) if args.job == 'worker' else None
     print("Starting {} {} with log at {}".format(args.job, args.task, LOG_FILE))
     process_fn(cluster=CLUSTER, task_id=args.task, job=args.job , logger=logger, 
-                env_id=args.env, animate=ANIMATE, random_seed=RANDOM_SEED, save_path=args.checkpoint)
+                env_id=args.env, animate=ANIMATE, random_seed=RANDOM_SEED, save_path=args.checkpoint, stack_frames=1)
 
 
 
