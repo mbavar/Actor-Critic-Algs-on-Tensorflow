@@ -20,7 +20,7 @@ def lrelu(x, alpha=0.2):
     return (1-alpha) * tf.nn.relu(x) + alpha * x
 
 
-def fancy_slice_2d(X, inds0, inds1):
+def slice_2d(X, inds0, inds1):
     """
     like numpy X[inds0, inds1]
     """
@@ -60,7 +60,7 @@ def normalized_column_initializer(shape, dtype, partition_info):
     return u/scale
   
 class Actor(object):
-    def __init__(self, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1, 
+    def __init__(self, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1., init_gamma= .01,
                        ac_scale=2.0, ob_scale=[1.0, 1.0, 1.0]):
         with tf.variable_scope('Actor'):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
@@ -75,27 +75,34 @@ class Actor(object):
                 log_std = tf.expand_dims(tf.clip_by_value(log_std, -2.5, 2.5), axis=0)
                 std = tf.exp(log_std)
                 #std = tf.layers.dense(name='std', inputs=x2, units=num_ac, kernel_initializer=xav, activation=tf.nn.softplus) + 1e-8
-                self.ac = mu + tf.random_normal(shape=tf.shape(mu)) * std
-                self.logp =  tf.reduce_sum(-tf.square((self.ac - mu)/std)/2.0, axis=1) - tf.reduce_sum(log_std, axis=1)
+                dist = tf.distributions.Normal(loc=mu, scale=std)
+                self.ac = dist.sample()  #at sampling we are always sampling 1
+                self.logp =  tf.reduce_sum(dist.log_prob(self.ac), axis=1)
+                self.entropy = entropy = tf.reduce_sum(dist.entropy(), axis=1)
                 self.ac_hist = tf.placeholder(shape=[None, num_ac], dtype=tf.float32)
-                logp_newpolicy_oldac = tf.reduce_sum(- tf.square( (self.ac_hist - mu) / std)/2.0, axis=1) - tf.reduce_sum(log_std, axis=1)
+                logp_newpolicy_oldac = tf.reduce_sum(dist.log_prob(self.ac_hist), axis=1)
                 printing_data = ['Actor Data', tf.reduce_mean(std), tf.reduce_mean(self.logp), tf.nn.moments(self.ac, axes=[0,1])]
             else:
-                logits = tf.layers.dense(name='logits', inputs=x1, units=num_ac) + 1e-8
-                self.ac = categorical_sample_logits(logits)
-                logps = tf.nn.log_softmax(logits)
-                self.logp = fancy_slice_2d(logps, tf.range(tf.shape(self.ac)[0]), self.ac)
-                self.ac_hist = tf.placeholder(shape=[None], dtype=tf.int32)
-                logp_newpolicy_oldac = fancy_slice_2d(logps, tf.range(tf.shape(self.ac_hist)[0]), self.ac_hist)
+                logits = tf.layers.dense(name='logits', inputs=x2, units=num_ac) 
+                self.ac = ac = tf.cast(tf.reshape(tf.multinomial(logits=logits, num_samples=1),[-1]), dtype=tf.int32)
+                logps = tf.nn.log_softmax(logits+1e-8)
+                self.entropy = entropy = - tf.reduce_sum(tf.nn.softmax(logits) * logps, axis=1)
+                self.logp = tf.gather_nd(params=logps, indices=tf.stack([tf.range(tf.shape(ac)[0]), ac], axis=1))
+                self.ac_hist = ac_hist = tf.placeholder(shape=[None], dtype=tf.int32)
+                logp_newpolicy_oldac = tf.gather_nd(params=logps, indices=tf.stack([tf.range(tf.shape(ac_hist)[0]), ac_hist], axis=1))
                 mu = logits
-                printing_data = ['Actor Data',  tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
+                printing_data = ['Actor Data',  tf.reduce_mean(logits), tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
+                #self.logp = fancy_slice_2d(logps, tf.range(tf.shape(self.ac)[0]), self.ac)
+                #logp_newpolicy_oldac = fancy_slice_2d(logps, tf.range(tf.shape(self.ac_hist)[0]), self.ac_hist)
+
 
             self.rew_loss = -tf.reduce_mean(self.adv * logp_newpolicy_oldac) 
             self.oldnew_kl = p_dist = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
             # Actual loss stuff. Can try to add action entropy here too
             self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
+            self.gamma = tf.Variable(initial_value=init_gamma, dtype=tf.float32, trainable=False)
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
-            self.loss = self.rew_loss  +  self.beta * p_dist
+            self.loss = self.rew_loss  +  self.beta * p_dist #- self.gamma * tf.reduce_mean(entropy)
             adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             grads_and_vars =  adam.compute_gradients(self.loss)
             grads_and_vars = [ (fancy_clip(g, -1., 1.), v) for g,v in grads_and_vars]
@@ -107,11 +114,7 @@ class Actor(object):
             self.printer = tf.constant(0.0) 
             self.printer = tf.Print(self.printer, data=printing_data)
             self.printer = tf.Print(self.printer, data=['Actor layer data', tf.reduce_mean(x), tf.reduce_mean(x1), tf.reduce_mean(mu)])
-            new_lr = tf.placeholder(dtype=tf.float32, shape=())
-            lr_assign = tf.assign(self.lr, new_lr)
-            def _lr_update(sess, val):
-                return sess.run(lr_assign, feed_dict={new_lr:val})
-            self._lr_update = _lr_update
+
 
     def get_kl(self, sess, logp_feeds, obs, acs):
         feed_dict = {self.logp_feed:logp_feeds, self.ac_hist:acs, self.ob:obs}
@@ -121,23 +124,25 @@ class Actor(object):
         ob = np.array(ob)
         if len(ob.shape) != 2:
             ob = ob[None]
-        ac, logp =  sess.run([self.ac, self.logp], feed_dict={self.ob:ob})
-        return ac[0], logp[0]
+        ac, logp, ent =  sess.run([self.ac, self.logp, self.entropy], feed_dict={self.ob:ob})
+        return ac[0], logp[0], ent[0]
     
     def optimize(self, acs, obs, advs, logps, sess):
         feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
         return sess.run([self.loss, self.opt], feed_dict=feed_dict)
     
-    def set_opt_param(self, sess, new_lr=None, new_beta=None):
+    def set_opt_param(self, sess, new_lr=None, new_beta=None, new_gamma=None):
         feed_dict = dict()
         if new_beta is not None:
-            feed_dict[self.beta] = new_beta
+            sess.run(tf.assign(self.beta, new_beta))
         if new_lr is not None:
-            self._lr_update(sess=sess, val=new_lr)
+            sess.run(tf.assign(self.lr, new_lr))
+        if new_gamma is not None:
+            sess.run(tf.assign(self.gamma, new_gamma))
         return self.get_opt_param(sess)
         
     def get_opt_param(self, sess):
-        return sess.run([self.lr, self.beta])
+        return sess.run([self.lr, self.beta, self.gamma])
 
     def printoo(self, obs, sess):
         return sess.run([self.printer], feed_dict={self.ob: obs})

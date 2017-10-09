@@ -100,18 +100,18 @@ def rollout(env, sess, policy, framer, max_path_length=100, render=False):
     return path
 
 
-def train_ciritic(critic, sess, batch_size, repeat, obs, targets):
+def train_ciritic(critic, sess, obs, targets):
     assert len(obs) == len(targets)
     ev_before = var_accounted_for(obs=obs, target=targets, sess=sess, critic=critic)
     loss, _ = critic.optimize(obs=obs, targets=targets, sess=sess)
     return loss, ev_before
 
 
-def train_actor(actor, sess, batch_size, repeat, obs, advs, logps, acs):
+def train_actor(actor, sess, obs, advs, logps, acs):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
     batch_loss, _ = actor.optimize(sess=sess, obs=obs, acs=acs, advs=advs, logps=logps)
-    actor.update_global_step(sess=sess, batch_size=n)
+    actor.update_global_step(sess=sess, batch_size=len())
     return  batch_loss
 
 
@@ -214,9 +214,8 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     local_critic.printoo(obs=ep_obs, sess=sess)
                     global_critic.printoo(obs=ep_obs, sess=sess)
                 """
-                cir_loss, ev_before = train_ciritic(critic=local_critic, sess=sess, batch_size=BATCH, repeat= MULT, obs=ep_obs, targets=ep_target_vals,)
-                act_loss = train_actor(actor=local_actor, sess=sess, batch_size=BATCH, repeat=MULT, obs=ep_obs, 
-                                       advs=ep_advs, acs=ep_acs, logps=ep_logps) 
+                cir_loss, ev_before = train_ciritic(critic=local_critic, sess=sess, obs=ep_obs, targets=ep_target_vals,)
+                act_loss = train_actor(actor=local_actor, sess=sess,  obs=ep_obs, advs=ep_advs, acs=ep_acs, logps=ep_logps) 
 
                 local_actor.sync_w_global(sess)
                 local_critic.sync_w_global(sess)             

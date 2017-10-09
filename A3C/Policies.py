@@ -52,9 +52,9 @@ class Actor(object):
         with tf.variable_scope(name):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             obs_scaled = ob_scaler(self.ob)
-            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=256, activation=tf.nn.elu, kernel_initializer=xavier)
-            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=tf.nn.elu, kernel_initializer=xavier)
-            x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=128, activation=tf.nn.elu, kernel_initializer=xavier)
+            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.lrelu, kernel_initializer=xavier)
+            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=tf.nn.lrelu, kernel_initializer=xavier)
+            x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=64, activation=tf.nn.lrelu, kernel_initializer=xavier)
             self.adv = tf.placeholder(shape=[None], dtype=tf.float32)
             self.logp_feed = tf.placeholder(shape=[None], dtype=tf.float32)
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
@@ -83,8 +83,8 @@ class Actor(object):
             self.oldnew_kl = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
             # Actual loss stuff. Can try to add action entropy here too
             self.beta = tf.Variable(initial_value=init_beta, dtype=tf.float32, trainable=False)
-            self.loss = self.rew_loss   #+  self.oldnew_kl  (this used to be part of our ppo technique. But this is a bit more 
-                                        #                problematic in asynchornous setting.)
+            self.loss = self.rew_loss + self.beta * self.oldnew_kl  
+
             self.my_optimizer = adam = tf.train.AdamOptimizer(learning_rate=self.lr)
             self.my_vars = my_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
@@ -151,9 +151,9 @@ class Critic(object):
         with tf.variable_scope(name):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             obs_scaled = ob_scaler(self.obs)
-            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=128, activation=tf.nn.elu, kernel_initializer=xavier)
-            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=64, activation=tf.nn.elu, kernel_initializer=xavier)
-            x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=64, activation=tf.nn.elu, kernel_initializer=xavier)
+            x = tf.layers.dense(name='first_layer', inputs=obs_scaled, units=256, activation=tf.nn.elu, kernel_initializer=xavier)
+            x1 = tf.layers.dense(name='second_layer',  inputs=x, units=128, activation=tf.nn.elu, kernel_initializer=xavier)
+            x2 = tf.layers.dense(name='third_layer',  inputs=x1, units=128, activation=tf.nn.elu, kernel_initializer=xavier)
             #x2 = dense(name='third_layer', inp=x1, activation= tf.nn.relu, in_dim=16, out_dim=16)
             self.v = v = tf.reshape(tf.layers.dense(name='value', inputs=x2, units=1, kernel_initializer=normalized_column_initializer), [-1])
             self.lr = tf.Variable(initial_value=init_lr, dtype=tf.float32, trainable=False)
