@@ -60,7 +60,7 @@ class Logger(object):
         
     def __call__(self, t, act_loss, circ_loss, kl_dist, avg_rew, print_tog, act_lr, avg_ent, worker_id=0, ev_before= -1 , ev_after=-1):
         if print_tog:
-            print('Iteration %d' % t)
+            print('\nIteration %d' % t)
             print('EpRewMean %.4f ' % avg_rew )
             print('EV Before %f' % ev_before)
             print('EV After %f' % ev_after )
