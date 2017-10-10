@@ -114,8 +114,8 @@ def main():
     parser.add_argument("--seed", default=12321)
     parser.add_argument("--tboard", default=False, action='store_true')
     parser.add_argument("--checkpoints", default='./checkpoints/')
-    parser.add_argument("--frames", default=1, dtype=int)
-    parser.add_argument("--save_every", default=100, dtype=int)
+    parser.add_argument("--frames", default=1)
+    parser.add_argument("--save_every", default=100)
     parser.add_argument("--mode", choices=["train", "debug"], default="train")
     args = parser.parse_args()
     LOG_FILE = args.outdir
@@ -135,8 +135,8 @@ def main():
     framer = Framer(frame_num=args.frames) 
     ob_dim = env.observation_space.shape[0] * args.frames
     critic = pol.Critic(num_ob_feat=ob_dim)
-    log_gamma_schedule = LinearSchedule(init_t=100, end_t=3000, init_val=-2, end_val=-8, update_every_t=100) #This is base 10
-    log_beta_schedule = LinearSchedule(init_t=100, end_t=3000, init_val=0, end_val=-4, update_every_t=100) #This is base 10
+    log_gamma_schedule = U.LinearSchedule(init_t=100, end_t=3000, init_val=-2, end_val=-8, update_every_t=100) #This is base 10
+    log_beta_schedule = U.LinearSchedule(init_t=100, end_t=3000, init_val=0, end_val=-4, update_every_t=100) #This is base 10
     rew_to_advs =  PathAdv(gamma=0.98, look_ahead=40)
     logger = U.Logger(logfile=LOG_FILE)
     saver = tf.train.Saver(max_to_keep=3) 
