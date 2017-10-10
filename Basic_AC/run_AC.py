@@ -128,7 +128,7 @@ def get_roll_params(env_id):
     env = gym.make(env_id)
     max_path_length, ep_length_stop = 1200, 3000
     if env_id == "Pendulum-v0":
-        max_path_length, ep_length_stop = 400, 1200
+        max_path_length, ep_length_stop = 400, 1400
     elif env.spec.max_episode_steps is not None:
         max_path_length = env.spec.max_episode_steps
         ep_length_stop  = min(max_path_length * 4, 3000)
