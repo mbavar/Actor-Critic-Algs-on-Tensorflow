@@ -90,7 +90,7 @@ def rollout(env, sess, policy, framer, max_path_length=100, render=False):
     logps = []
     rews = []
     acs = []
-    ents = []
+    sum_ents = 0
     done = False
     while t < max_path_length and not done:
         if render:
@@ -101,9 +101,9 @@ def rollout(env, sess, policy, framer, max_path_length=100, render=False):
         obs.append(ob)
         rews.append(rew)
         acs.append(ac)
-        ents.append(ent)
+        sum_ents += ent
         logps.append(logp)
-    path = {'rews': rews, 'obs':obs, 'acs':acs, 'terminated': done, 'logps':logps, 'entropy':ents}
+    path = {'rews': rews, 'obs':obs, 'acs':acs, 'terminated': done, 'logps':logps, 'entropy':sum_ents}
     return path
 
 def train_ciritic(critic, sess, obs, targets):
@@ -186,7 +186,7 @@ def main():
                 ep_obs += obs_aug[:-1]
                 ep_logps += path['logps']
                 ep_acs += path['acs']
-                tot_ent += np.sum(path['entropy'])
+                tot_ent += path['entropy']
                 obs_vals = critic.value(obs=obs_aug, sess=sess).reshape(-1)
                 target_val, advs = rew_to_advs(rews=path['rews'], terminal=path['terminated'], vals=obs_vals)
                 ep_target_vals += list(target_val)

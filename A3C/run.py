@@ -1,21 +1,27 @@
 from process import process_fn
 import util as U
 import argparse
+import os
 
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("job", choices=["ps", "worker"])
     parser.add_argument("task", type=int )
-    parser.add_argument("--outdir", default='log.txt')
     parser.add_argument("--animate", default=False, action='store_true')
     parser.add_argument("--env", default='Pendulum-v0')
     parser.add_argument("--seed", default=12321)
     parser.add_argument("--tboard", default=False)
-    parser.add_argument("--worker_num",default=4, type=int)
-    parser.add_argument("--ps_num", default=2, type=int)
-    parser.add_argument("--initport", default=9437)
-    parser.add_argument("--checkpoint", default='./tmp/checkpoints/')
+    parser.add_argument("--worker_num",default=4, type=int) #worker jobs
+    parser.add_argument("--ps_num", default=2, type=int)  #ps jobs
+    parser.add_argument("--initport", default=9437)   #starting ports for cluster
+    parser.add_argument("--save_every", default=600)  #save frequency
+    parser.add_argument("--outdir", default=os.path.join('tmp', 'log.txt'))  # file for the statistics of training
+    parser.add_argument("--checkpoint_dir", default=os.path.join('tmp', 'checkpoints'))   #where to save checkpoint
+    parser.add_argument("--frames", default=1)    #how many recent frames to send to model 
+    parser.add_argument("--mode", choices=["train", "debug-light", "debug-full"], default="train") #how verbose to print to stdout
+    parser.add_argument("--desired_kl", default=0.002)   #An important to tune. The learning rate is adjusted when KL dist falls 
+                                                         #far above or below the desired_kl
     args = parser.parse_args()
     
     ANIMATE = args.animate and args.task == 0 and  args.job == 'worker'
@@ -29,13 +35,15 @@ def main():
         workers.append("localhost:{}".format(i+args.ps_num+INITPORT))
     CLUSTER['worker'] = workers
     CLUSTER['ps'] = ps_
-    LOG_FILE = args.outdir.split('.')[0] + '_{}.'.format(args.task) + args.outdir.split('.')[1] if args.job == 'worker' else  'no logging for ps'
+    LOG_FILE = args.outdir.split('.')[0] + '_{}.'.format(args.task) + args.outdir.split('.')[1] if args.job == 'worker' else  'N/A'
     RANDOM_SEED = args.seed + args.task
+    CHECKPOINT_PATH = args.checkpoint_dir + '-'+ args.env.split('-')[0]
 
     logger = U.Logger(logfile=LOG_FILE) if args.job == 'worker' else None
     print("Starting {} {} with log at {}".format(args.job, args.task, LOG_FILE))
     process_fn(cluster=CLUSTER, task_id=args.task, job=args.job , logger=logger, 
-                env_id=args.env, animate=ANIMATE, random_seed=RANDOM_SEED, save_path=args.checkpoint, stack_frames=1)
+                env_id=args.env, animate=ANIMATE, random_seed=RANDOM_SEED, save_path=CHECKPOINT_PATH, stack_frames=args.frames,
+                save_every=args.save_every, run_mode=args.mode, desired_kl=args.desired_kl)
 
 
 
