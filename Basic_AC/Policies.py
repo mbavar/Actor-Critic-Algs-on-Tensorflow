@@ -3,6 +3,7 @@ import numpy as np
 SCALE = 0.1
 def xav(*t, dtype, partition_info):
     return 0.1 * xavier(*t)
+
 xavier = tf.contrib.layers.xavier_initializer()
 
 def variable_summaries(var, name=''):
@@ -64,7 +65,6 @@ class Actor(object):
                 printing_data = ['Actor Data',  tf.reduce_mean(logits), tf.reduce_mean(self.logp), tf.reduce_mean(self.ac)]
                 #self.logp = fancy_slice_2d(logps, tf.range(tf.shape(self.ac)[0]), self.ac)
                 #logp_newpolicy_oldac = fancy_slice_2d(logps, tf.range(tf.shape(self.ac_hist)[0]), self.ac_hist)
-
 
             self.rew_loss = -tf.reduce_mean(self.adv * logp_newpolicy_oldac) 
             self.oldnew_kl = p_dist = tf.reduce_mean(tf.square(self.logp_feed-logp_newpolicy_oldac))   
