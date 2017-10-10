@@ -104,7 +104,7 @@ class Logger(object):
 
 def ob_feature_augment(obs_path):
     """
-    Method for feature augementation for observations. Only used in old versions of the code. 
+    Method for feature augmentation for observations. Only used in old versions of the code. 
     """
     obs_path = np.array(obs_path)
     obs2 = obs_path ** 2
