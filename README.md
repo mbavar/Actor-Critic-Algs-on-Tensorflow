@@ -15,7 +15,7 @@ To run this on an enviroment such as `CartPole-v0` simply run
 cd Basic_AC
 python run_AC.py --env CartPole-v0 --animate
 ```
-The default environment without specifying `--env` option is `Pendulum-v0`.
+The default environment without specifying `--env` flag is `Pendulum-v0`.
 
 ### A3C
 
