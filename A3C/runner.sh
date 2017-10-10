@@ -1,4 +1,4 @@
-rm nohup.out
+#rm nohup.out
 env=Pendulum-v0
 workers=2
 ps=1
