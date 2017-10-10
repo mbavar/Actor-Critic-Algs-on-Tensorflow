@@ -122,11 +122,11 @@ def main():
     ANIMATE = args.animate
     DEBUG = (args.mode == "debug")
 
-    MAX_ROLLS = 5
+    MAX_ROLLS = 8
     MAX_PATH_LENGTH = 400
     ITER = 1000000
     LOG_ROUND = 10
-    EP_LENGTH_STOP = 1000 
+    EP_LENGTH_STOP = 1200 
 
     desired_kl = 0.002
     max_lr, min_lr = 1. , 1e-6
