@@ -23,8 +23,9 @@ parser.add_argument("--desired_kl", default=0.002)   #An important to tune. The 
 
 class Framer(object):
     """
-    Ceates the augmentd obs features, to be fed to Actor & Critics nets, by concatenating a few (frame_num)
-    bare obs together. So ob_dim = env.observation_space.shape[0] * frame_num
+    Ceates the augmentd obs features from the bare observations. Any obs fed to Actor & Critics nets must go through Framer. 
+    Currently it simply concatenates a few (frame_num) recent bare obs together. 
+    So ob_dim = env.observation_space.shape[0] * frame_num
 
     Members:
       last: given the current stack of obs creates the last feature for t=len(obs)
@@ -80,7 +81,7 @@ class PathAdv(object):
 
 def rollout(env, sess, policy, framer, max_path_length=100, render=False):
     """
-    Gather an episode of experience by running the environment. Continues until env.done is True
+    Gather an episode of experiences by running the environment. Continues until env.done is True
     or length of episode exceed max_path_length
     """
     t = 0
