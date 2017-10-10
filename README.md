@@ -1,6 +1,6 @@
 ## A3C-vs-A2C-on-tensorflow
 
-The goal of this project is to provide high quality implementations of a few popular distributed Reinforcement Learning methods. In the first phase, we focus on the basic Actor-Critic and its asynchronous version A3C. We later plan to implement and compare these with A2C (synchronous version of A3C)  in a few OpenAI gym environments in terms of time and sample complexities. 
+The goal of this project is to provide high quality implementations of a few popular distributed Reinforcement Learning methods. In the first phase, we focus on the basic Actor-Critic and its more sophisticated variant A3C. We later plan to implement and compare these with A2C (synchronous version of A3C)  in a few OpenAI gym environments. 
 
 ### Requirements
 OpenAI gym, Python3, Tensorflow 1.3.
