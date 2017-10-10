@@ -115,7 +115,7 @@ def main():
     parser.add_argument("--tboard", default=False, action='store_true')
     parser.add_argument("--checkpoints", default='./checkpoints/')
     parser.add_argument("--frames", default=1)
-    parser.add_argument("--save_every", default=100)
+    parser.add_argument("--save_every", default=600)
     parser.add_argument("--mode", choices=["train", "debug"], default="train")
     args = parser.parse_args()
     LOG_FILE = args.outdir
@@ -123,10 +123,10 @@ def main():
     DEBUG = (args.mode == "debug")
 
     MAX_ROLLS = 5
-    MAX_PATH_LENGTH = 1600
+    MAX_PATH_LENGTH = 400
     ITER = 1000000
     LOG_ROUND = 10
-    EP_LENGTH_STOP = 3000 
+    EP_LENGTH_STOP = 1000 
 
     desired_kl = 0.002
     max_lr, min_lr = 1. , 1e-6
@@ -236,7 +236,7 @@ def main():
             if i % 100 == 50:
                 logger.flush() 
 
-            if  i%args.save_every == 0:   
+            if  i>0 and i%args.save_every == 0:   
                 saver.save(sess, args.checkpoints)
 
     del logger
