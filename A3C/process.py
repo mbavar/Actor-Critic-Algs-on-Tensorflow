@@ -97,21 +97,6 @@ def rollout(env, sess, policy, framer, max_path_length=100, render=False):
     path = {'rews': rews, 'obs':obs, 'acs':acs, 'terminated': done, 'logps':logps, 'entropy':sum_ents}
     return path
 
-def train_ciritic(critic, sess, obs, targets):
-    assert len(obs) == len(targets)
-    pre_preds = critic.value(obs, sess=sess)
-    ev_before = U.var_accounted_for(targets, pre_preds)
-    loss, _= critic.optimize(obs=obs, targets=targets, sess=sess)
-    post_preds = critic.value(obs, sess=sess)
-    ev_after = U.var_accounted_for(targets, post_preds)
-    return loss, ev_before, ev_after
-
-def train_actor(actor, sess, obs, advs, logps, acs):
-    assert len(obs) == len(advs)
-    assert len(advs) == len(acs)
-    loss, _ = actor.optimize(sess=sess, obs=obs, acs=acs,  advs=advs, logps=logps) 
-    return loss
-
 def get_roll_params(env_id):
     """
     Creates environment and sets up the rollout params.
@@ -125,7 +110,8 @@ def get_roll_params(env_id):
 
 def train_ciritic(critic, sess, obs, targets):
     assert len(obs) == len(targets)
-    ev_before = U.var_accounted_for(obs=obs, target=targets, sess=sess, critic=critic)
+    pre_preds = critic.value(obs, sess=sess)
+    ev_before = U.var_accounted_for(pred=pre_preds, target=targets)
     loss, _ = critic.optimize(obs=obs, targets=targets, sess=sess)
     return loss, ev_before
 
@@ -138,8 +124,10 @@ def train_actor(actor, sess, obs, advs, logps, acs, rolls):
     return loss, gstep
 
 
+
 def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=12321, gamma=0.98, look_ahead=40, 
-               stack_frames=3, animate=False, TB_log=False, save_every=600, run_mode='train', desired_kl=0.002):
+               stack_frames=3, animate=False, TB_log=False, save_every=600, run_mode='train', desired_kl=0.002,
+               checkpoint_basename='model'):
 
     cluster = tf.train.ClusterSpec(cluster)
     server = tf.train.Server(cluster, job_name=job, task_index=task_id)
@@ -174,7 +162,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
             cluster=cluster,)):
             global_critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
             global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, ac_scale=ac_scale)     
-            saver = tf.train.Saver(max_to_keep=3)  #saver defined here so it only saves the global models vars
+            saver = tf.train.Saver(max_to_keep=3) #saver defined here so it only saves the global models vars
 
         with tf.device(worker_device):
             local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id), global_critic=global_critic)
@@ -186,7 +174,9 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                 sess.run(local_init_op)
         print('\n\nREACHING THE MAIN LOOP OF WORKER %d\n' % task_id)
         max_lr, min_lr = MAX_LR, MIN_LR
-        kl_dist= 0.
+        kl_dist, gstep= 0., 0
+        #saver_hook = tf.train.CheckpointSaverHook(checkpoint_dir=save_path, save_steps=save_every, 
+        #	                                      checkpoint_basename=checkpoint_basename, saver=saver)
 
         with tf.train.MonitoredTrainingSession(master=server.target, is_chief=is_chief) as sess:
             i, gstep = 0, 0 
@@ -210,7 +200,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     ep_rews += path['rews']
                     tot_rews += sum(path['rews'])
                     tot_ent += path['entropy']
-                    if rolls ==0 and i%50 ==0:
+                    if rolls ==0 and i%50 ==0 and DEBUG:
                         print('Total Rolls %d' % gstep)
                         print('Path length %d' % len(path['rews']))
                         print('Terminated {}'.format(path['terminated']))       
@@ -237,7 +227,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
 
                 local_actor.sync_w_global(sess)
                 local_critic.sync_w_global(sess)             
-                ev_after =  U.var_accounted_for(obs=ep_obs, target=ep_target_vals, sess=sess, critic=local_critic)
+                ev_after =  U.var_accounted_for(target=ep_target_vals, pred=local_critic.value(sess=sess, obs=ep_obs))
                 kl_dist =  local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
                 act_lr, cur_beta, cur_gamma = local_actor.get_opt_param(sess)
         
@@ -256,14 +246,10 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     local_actor.set_opt_param(sess=sess, new_beta=new_beta)
                     print('Updated beta from %.4f to %.4f.' % (cur_beta, new_beta))
 
-                if  i%args.save_every == 0 and is_chief:   
-                    saver.save(sess, CHECKPOINT_PATH, global_step=tot_rolls)
-
-                
-                logger(i, act_loss=act_loss, worker_id = task_id, act_lr=act_lr, kl_dist=kl_dist, circ_loss=np.sqrt(cir_loss), avg_rew=avg_rew, 
+                logger(i, act_loss=act_loss, worker_id=task_id, act_lr=act_lr, kl_dist=kl_dist, circ_loss=np.sqrt(cir_loss), avg_rew=avg_rew, 
                 ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0, avg_ent=avg_ent)
                 if i % 100 == 50:
-                    logger.write()
+                    logger.flush()
                 i += 1
                 
 

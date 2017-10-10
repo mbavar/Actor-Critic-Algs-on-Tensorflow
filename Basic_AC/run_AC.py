@@ -14,7 +14,7 @@ parser.add_argument("--env", default='Pendulum-v0')
 parser.add_argument("--seed", default=12321)  
 parser.add_argument("--tboard", default=False, action='store_true')
 parser.add_argument("--save_every", default=600)  
-parser.add_argument("--outdir", default=os.path.join('tmp', 'log.txt'))  # file for the statistics of training
+parser.add_argument("--outdir", default='log.txt')  # file for the statistics of training
 parser.add_argument("--checkpoint_dir", default=os.path.join('tmp', 'checkpoints'))   #where to save checkpoint
 parser.add_argument("--frames", default=1)    #how many recent frames to send to model 
 parser.add_argument("--mode", choices=["train", "debug"], default="train") #how verbose to print to stdout
@@ -127,9 +127,12 @@ def get_roll_params(env_id):
     """
     env = gym.make(env_id)
     max_path_length, ep_length_stop = 1200, 3000
-    if env.spec.max_episode_steps is not None:
+    if env_id == "Pendulum-v0":
+        max_path_length, ep_length_stop = 400, 1200
+    elif env.spec.max_episode_steps is not None:
         max_path_length = env.spec.max_episode_steps
-        ep_length_stop  = min(max_path_length * 6, 3000)
+        ep_length_stop  = min(max_path_length * 4, 3000)
+    print('\nMAX PATH LENGTH, EP LENGTH STEP: {}, {}\n'.format(max_path_length, ep_length_stop))
     return env, max_path_length, ep_length_stop
 
 def main():        
