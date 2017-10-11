@@ -53,6 +53,9 @@ class Logger(object):
     """
     def __init__(self, logfile):
         self.logfile = logfile
+        dir_name= os.path.dirname(logfile)
+        if not os.path.exists(dir_name) and dir_name != '':
+            os.makedirs(dir_name, exist_ok=True)
         self.f = open(logfile, 'w')
         self.last_write = 0
         self.f.write('step avg_rew ev_before ev_after act_loss crit_loss kl_dist avg_ent\n')

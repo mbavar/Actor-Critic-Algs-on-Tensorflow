@@ -4,6 +4,7 @@ import gym
 import util as U
 
 from scipy import signal
+from time import sleep
 
 import Policies as pol
 
@@ -120,8 +121,8 @@ def train_actor(actor, sess, obs, advs, logps, acs, rolls):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
     loss, _ = actor.optimize(sess=sess, obs=obs, acs=acs, advs=advs, logps=logps)
-    gstep = actor.update_global_step(sess=sess, batch_size=rolls)
-    return loss, gstep
+    #gstep = actor.update_global_step(sess=sess, batch_size=rolls)
+    return loss
 
 
 
@@ -161,30 +162,31 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
             worker_device=worker_device,
             cluster=cluster,)):
             global_critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
-            global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, ac_scale=ac_scale)     
+            global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, ac_scale=ac_scale)            
             saver = tf.train.Saver(max_to_keep=3) #saver defined here so it only saves the global models vars
+            global_step_tensor = tf.train.get_or_create_global_step()  
 
         with tf.device(worker_device):
             local_critic = pol.Critic(num_ob_feat=ob_dim, name='local_critic_{}'.format(task_id), global_critic=global_critic)
             local_actor = pol.Actor(num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, name='local_actor_{}'.format(task_id), 
-                                    global_actor=global_actor) 
+                                    global_actor=global_actor, global_step=global_step_tensor ) 
 
         local_init_op = tf.global_variables_initializer()
         with tf.Session(server.target) as sess:
                 sess.run(local_init_op)
         print('\n\nREACHING THE MAIN LOOP OF WORKER %d\n' % task_id)
         max_lr, min_lr = MAX_LR, MIN_LR
-        kl_dist, gstep= 0., 0
-        #saver_hook = tf.train.CheckpointSaverHook(checkpoint_dir=save_path, save_steps=save_every, 
-        #	                                      checkpoint_basename=checkpoint_basename, saver=saver)
+        kl_dist, i = 0., 0
+        saver_hook = tf.train.CheckpointSaverHook(checkpoint_dir=save_path, save_steps=save_every, 
+        	                                      checkpoint_basename=checkpoint_basename, saver=saver)
 
-        with tf.train.MonitoredTrainingSession(master=server.target, is_chief=is_chief) as sess:
-            i, gstep = 0, 0 
+        with tf.train.MonitoredTrainingSession(master=server.target, is_chief=is_chief, chief_only_hooks=[saver_hook]) as sess:
+            gstep = tf.train.global_step(sess, global_step_tensor)
+            
             while not sess.should_stop() and gstep < MAX_ITERS:
                 ep_obs, ep_advs, ep_logps, ep_target_vals, ep_acs = [], [], [], [], []
                 ep_rews = []
                 tot_rews, tot_ent, rolls = 0., 0., 0
-
                 while len(ep_rews)<EP_LENGTH_STOP:
                     path = rollout(env=env, sess= sess, policy=local_actor.act, 
                                    max_path_length=MAX_PATH_LENGTH, framer=framer,
@@ -200,8 +202,8 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     ep_rews += path['rews']
                     tot_rews += sum(path['rews'])
                     tot_ent += path['entropy']
-                    if rolls ==0 and i%50 ==0 and DEBUG:
-                        print('Total Rolls %d' % gstep)
+                    if rolls ==0 and i%50 ==0:
+                        print('Total Steps %d' % gstep)
                         print('Path length %d' % len(path['rews']))
                         print('Terminated {}'.format(path['terminated']))       
                     rolls +=1
@@ -220,15 +222,13 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     print('Some target vals', ep_target_vals[perm])
                     print('Some logps', ep_logps[perm])
                     local_actor.printoo(obs=ep_obs, sess=sess)
-                    local_critic.printoo(obs=ep_obs, sess=sess)
-                
+                    local_critic.printoo(obs=ep_obs, sess=sess)     
                 cir_loss, ev_before = train_ciritic(critic=local_critic, sess=sess, obs=ep_obs, targets=ep_target_vals,)
-                act_loss, gstep = train_actor(actor=local_actor, sess=sess,  obs=ep_obs, advs=ep_advs, acs=ep_acs, logps=ep_logps, rolls=rolls) 
-
+                act_loss = train_actor(actor=local_actor, sess=sess,  obs=ep_obs, advs=ep_advs, acs=ep_acs, logps=ep_logps, rolls=rolls) 
                 local_actor.sync_w_global(sess)
                 local_critic.sync_w_global(sess)             
                 ev_after =  U.var_accounted_for(target=ep_target_vals, pred=local_critic.value(sess=sess, obs=ep_obs))
-                kl_dist =  local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
+                kl_dist = local_actor.get_kl(sess=sess, logp_feeds=ep_logps, obs=ep_obs, acs=ep_acs)
                 act_lr, cur_beta, cur_gamma = local_actor.get_opt_param(sess)
         
                 if kl_dist < desired_kl/4:
@@ -251,6 +251,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                 if i % 100 == 50:
                     logger.flush()
                 i += 1
+                gstep = tf.train.global_step(sess, global_step_tensor)
                 
 
         del logger

@@ -34,7 +34,7 @@ def normalized_column_initializer(shape, dtype, partition_info):
 
 class Actor(object):
     def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1, init_gamma=0.01,
-                       ac_scale=2., ob_scaler=ID_FN, ac_activation=ID_FN, global_actor=None):
+                       ac_scale=2., ob_scaler=ID_FN, ac_activation=ID_FN, global_actor=None, global_step=None):
         with tf.variable_scope(name):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             obs_scaled = ob_scaler(self.ob)
@@ -81,21 +81,14 @@ class Actor(object):
             grads_and_vars = adam.compute_gradients(self.loss, var_list=my_vars)
             grads_clipped = [tf.clip_by_value(g, -.1, .1) for g,_ in grads_and_vars]
 
-            if global_actor is None:
-                self.global_step = tf.Variable(initial_value=0, trainable=False, dtype=tf.int32) 
-            else:
+            if global_actor is not None:
                 grads_and_vars = zip(grads_clipped, global_actor.my_vars)
-                opt_op =adam.apply_gradients(grads_and_vars)
+                opt_op =adam.apply_gradients(grads_and_vars, global_step=global_step)
                 def optimize(acs, obs, advs, logps, sess):
                     feed_dict= {self.adv: advs,self.ac_hist:acs, self.ob:obs, self.logp_feed:logps}
                     return sess.run([loss, opt_op], feed_dict=feed_dict)   
                 self.optimize = optimize
                 self._global_syncer = [v_l.assign(v_g) for v_l, v_g in zip(my_vars, global_actor.my_vars)]
-                batch = tf.placeholder(shape=(), dtype=tf.int32)
-                global_step_update_op = tf.assign_add(global_actor.global_step, batch)
-                def update_global_step(sess, batch_size):
-                    return sess.run(global_step_update_op, feed_dict={batch:batch_size}) 
-                self.update_global_step = update_global_step
                 self.new_val_placeholder = tf.placeholder(shape=(), dtype=tf.float32)
                 self.beta_update = beta.assign(self.new_val_placeholder)
                 self.gamma_update = gamma.assign(self.new_val_placeholder)

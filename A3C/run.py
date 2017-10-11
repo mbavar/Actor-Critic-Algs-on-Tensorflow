@@ -14,13 +14,13 @@ def main():
     parser.add_argument("--tboard", default=False)
     parser.add_argument("--worker_num",default=4, type=int) #worker jobs
     parser.add_argument("--ps_num", default=2, type=int)  #ps jobs
-    parser.add_argument("--initport", default=6238)   #starting ports for cluster
+    parser.add_argument("--initport", default=6938)   #starting ports for cluster
     parser.add_argument("--save_every", default=600)  #save frequency
-    parser.add_argument("--outdir", default='log.txt')  # file for the statistics of training
+    parser.add_argument("--outdir", default=os.path.join('tmp', 'logs'))  # file for the statistics of training
     parser.add_argument("--checkpoint_dir", default=os.path.join('tmp', 'checkpoints'))   #where to save checkpoint
     parser.add_argument("--frames", default=1)    #how many recent frames to send to model 
     parser.add_argument("--mode", choices=["train", "debug-light", "debug-full"], default="train") #how verbose to print to stdout
-    parser.add_argument("--desired_kl", default=0.002)   #An important to tune. The learning rate is adjusted when KL dist falls 
+    parser.add_argument("--desired_kl", default=0.002)   #An important param to tune. The learning rate is adjusted when KL dist falls 
                                                          #far above or below the desired_kl
     args = parser.parse_args()
     
@@ -35,7 +35,7 @@ def main():
         workers.append("localhost:{}".format(i+args.ps_num+INITPORT))
     CLUSTER['worker'] = workers
     CLUSTER['ps'] = ps_
-    LOG_FILE = args.outdir.split('.')[0] + '_{}.'.format(args.task) + args.outdir.split('.')[1] if args.job == 'worker' else  'N/A'
+    LOG_FILE = os.path.join(args.outdir, 'worker_{}.log'.format(args.task)) if args.job == 'worker' else  'N/A'
     RANDOM_SEED = args.seed + args.task
     checkpoint_basename = 'model' + '-'+ args.env.split('-')[0] 
 
@@ -50,6 +50,3 @@ def main():
 if __name__ == '__main__':
     main()
 
-
-#all_vars = tf.trainable_variables()
-#u = [v for v in all_vars if 'Critic' in v.name]
