@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import tensorflow as tf
 
 def var_accounted_for(target, pred):
     """
@@ -46,6 +47,10 @@ def make_np(*t):
     Transorfms as many lists to numpy version
     """
     return (np.array(x) for x in t)   
+
+def greedy_ps_strategy(ps_tasks):
+    byte_load = tf.contrib.training.byte_size_load_fn
+    ps_strategy = tf.contrib.training.GreedyLoadBalancingStrategy(num_tasks=ps_tasks, load_fn=byte_load)
 
 class Logger(object):
     """  

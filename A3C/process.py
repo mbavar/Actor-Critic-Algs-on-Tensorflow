@@ -121,7 +121,6 @@ def train_actor(actor, sess, obs, advs, logps, acs, rolls):
     assert len(obs) == len(advs)
     assert len(advs) == len(acs)
     loss, _ = actor.optimize(sess=sess, obs=obs, acs=acs, advs=advs, logps=logps)
-    #gstep = actor.update_global_step(sess=sess, batch_size=rolls)
     return loss
 
 
@@ -129,7 +128,8 @@ def train_actor(actor, sess, obs, advs, logps, acs, rolls):
 def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=12321, gamma=0.98, look_ahead=40, 
                stack_frames=3, animate=False, TB_log=False, save_every=600, run_mode='train', desired_kl=0.002,
                checkpoint_basename='model'):
-
+   
+    num_ps = len(cluster['ps'])
     cluster = tf.train.ClusterSpec(cluster)
     server = tf.train.Server(cluster, job_name=job, task_index=task_id)
 
@@ -156,11 +156,11 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
         if is_chief:
             print('Initilizing chief. Envirnoment action type {}.'.format(act_type))
 
-        worker_device = '/job:worker/task:{}/cpu:0'.format(task_id)
-        #ps_strategy = tf.contrib.training.GreedyLoadBalancingStrategy() 
-        with tf.device(tf.train.replica_device_setter(
-            worker_device=worker_device,
-            cluster=cluster,)):
+        worker_device = '/job:worker/task:{}/cpu:0'.format(task_id) 
+        with tf.device(tf.train.replica_device_setter(cluster=cluster,             #Makes sure global variables defined in  
+                                                      worker_device=worker_device, #this contexts are synced across processes
+                                                      ps_strategy=U.greedy_ps_strategy(ps_tasks=num_ps))):
+
             global_critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
             global_actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, ac_scale=ac_scale)            
             saver = tf.train.Saver(max_to_keep=3) #saver defined here so it only saves the global models vars
