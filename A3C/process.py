@@ -5,8 +5,7 @@ import util as U
 
 from scipy import signal
 from time import sleep
-
-import Policies as pol
+import policies as pol
 
 LOG_ROUND = 10
 MAX_ITERS = 1e7
@@ -203,7 +202,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
         max_lr, min_lr = MAX_LR, MIN_LR
         kl_dist, i = 0., 0
         saver_hook = tf.train.CheckpointSaverHook(checkpoint_dir=save_path, save_steps=save_every, 
-        	                                      checkpoint_basename=checkpoint_basename, saver=saver)
+                                                  checkpoint_basename=checkpoint_basename, saver=saver)
 
         with tf.train.MonitoredTrainingSession(master=server.target, is_chief=is_chief, chief_only_hooks=[saver_hook]) as sess:
             gstep = tf.train.global_step(sess, global_step_tensor)

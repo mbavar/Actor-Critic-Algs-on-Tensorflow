@@ -31,7 +31,6 @@ def normalized_column_initializer(shape, dtype, partition_info):
     scale =  tf.sqrt(tf.reduce_sum(tf.square(u), axis=0))/0.1
     return u/scale
 
-
 class Actor(object):
     """
     A MLP Actor with entropy and KL regularizations. It should recieve num_frames * env.observation_space.shape[0] features
@@ -136,7 +135,7 @@ class Actor(object):
 
 
 class Critic(object):
-        """
+    """
     A simple MLP critic network whose jobs is to estimate the discounted reward the agent is going to recieve in future given 
     the current state.
     """

@@ -14,7 +14,7 @@ def main():
     parser.add_argument("--tboard", default=False)
     parser.add_argument("--worker_num",default=4, type=int) #worker jobs
     parser.add_argument("--ps_num", default=2, type=int)  #ps jobs
-    parser.add_argument("--initport", default=6938, type=int)   #starting ports for cluster
+    parser.add_argument("--initport", default=4918, type=int)   #starting ports for cluster
     parser.add_argument("--save_every", default=600, type=int)  #save frequency
     parser.add_argument("--outdir", default=os.path.join('tmp', 'logs'))  # file for the statistics of training
     parser.add_argument("--checkpoint_dir", default=os.path.join('tmp', 'checkpoints'))   #where to save checkpoint

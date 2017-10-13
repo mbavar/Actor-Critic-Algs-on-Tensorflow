@@ -6,7 +6,7 @@ import argparse
 from scipy import signal
 import os 
 
-import Policies as pol
+import policies as pol
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--animate", default=False, action='store_true') 
