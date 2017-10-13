@@ -34,7 +34,7 @@ def normalized_column_initializer(shape, dtype, partition_info):
 
 class Actor(object):
     def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1, init_gamma=0.01,
-                       ac_scale=2., ob_scaler=ID_FN, ac_activation=ID_FN, global_actor=None, global_step=None):
+                       ac_scale=2., ob_scaler=ID_FN,  global_actor=None, global_step=None):
         with tf.variable_scope(name):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             obs_scaled = ob_scaler(self.ob)
