@@ -36,7 +36,7 @@ class Actor(object):
     Works both with continuous and discrete action spaces.
     """
     def __init__(self, num_ob_feat, ac_dim, act_type='cont', init_lr = 0.005, init_beta = 1., init_gamma= .01,
-                       ac_scale=2.0, ob_scale=[1.0, 1.0, 1.0]):
+                       ac_scale=2.0,):
         with tf.variable_scope('Actor'):
             self.ob = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)
             x = tf.layers.dense(name='first_layer', inputs=self.ob, units=128, activation=lrelu, kernel_initializer=xavier)
@@ -122,7 +122,7 @@ class Actor(object):
 
 class Critic(object):
     """
-    A simple MLP critic network. Its jobs is to estimate the discounted reward the agent is going to recieve in future given 
+    A simple MLP critic network whose job is to estimate the discounted reward the agent is going to recieve in future given 
     the current state.
     """
     def __init__(self, num_ob_feat, init_lr=0.001, ob_scale=1.):

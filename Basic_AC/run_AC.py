@@ -11,14 +11,14 @@ import Policies as pol
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--animate", default=False, action='store_true') 
 parser.add_argument("--env", default='Pendulum-v0') 
-parser.add_argument("--seed", default=12321)  
+parser.add_argument("--seed", default=12321, type=int)  
 parser.add_argument("--tboard", default=False, action='store_true')
-parser.add_argument("--save_every", default=600)  
+parser.add_argument("--save_every", default=600, type=int)  
 parser.add_argument("--outdir", default='log.txt')  # file for the statistics of training
 parser.add_argument("--checkpoint_dir", default=os.path.join('tmp', 'checkpoints'))   #where to save checkpoint
-parser.add_argument("--frames", default=1)    #how many recent frames to send to model 
+parser.add_argument("--frames", default=1, type=int)    #how many recent frames to send to model 
 parser.add_argument("--mode", choices=["train", "debug"], default="train") #how verbose to print to stdout
-parser.add_argument("--desired_kl", default=0.002)   #An important to tune. The learning rate is adjusted when KL dist falls 
+parser.add_argument("--desired_kl", default=0.002, type=float)   #An important to tune. The learning rate is adjusted when KL dist falls 
                                                      #far above or below the desired_kl
 
 class Framer(object):
@@ -134,6 +134,34 @@ def get_roll_params(env_id):
         ep_length_stop  = min(max_path_length * 4, 3000)
     print('\nMAX PATH LENGTH, EP LENGTH STEP: {}, {}\n'.format(max_path_length, ep_length_stop))
     return env, max_path_length, ep_length_stop
+
+
+def test_process(env_id, random_seed, stack_frames, model_path, num_episodes, animate=True):
+    env, MAX_PATH_LENGTH, _ = get_roll_params(env_id)
+    framer = Framer(frame_num=stack_frames)
+    ob_dim = env.observation_space.shape[0] * stack_frames
+    if type(env.action_space) == gym.spaces.discrete.Discrete:
+        act_type = 'disc'
+        ac_dim, ac_scale = env.action_space.n, None
+    else:
+        act_type = 'cont'
+        ac_dim, ac_scale = env.action_space.shape[0], np.maximum(env.action_space.high, np.abs(env.action_space.low))
+    actor = pol.Actor(num_ob_feat=ob_dim, ac_dim=ac_dim, act_type=act_type, ac_scale=ac_scale) 
+    saver = tf.train.Saver()
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        saver.restore(sess=sess, save_path=model_path)
+        avg_rew = 0
+        for i in range(num_episodes):
+            path = rollout(env=env, sess= sess, policy=actor.act, max_path_length=MAX_PATH_LENGTH, framer=framer, render= animate)
+            rew = np.sum(path['rews'])
+            print("Iteration {}".format(i))
+            print("Reward {}".format(rew))
+            print("Episode Length {}\n".format(len(path['rews'])))
+            avg_rew += rew/float(num_episodes)
+        print('Average reward over {} was {}'.format(num_episodes, avg_rew))
+
 
 def main():        
     args = parser.parse_args()

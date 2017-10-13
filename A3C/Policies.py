@@ -33,6 +33,10 @@ def normalized_column_initializer(shape, dtype, partition_info):
 
 
 class Actor(object):
+    """
+    A MLP Actor with entropy and KL regularizations. It should recieve num_frames * env.observation_space.shape[0] features
+    Works both with continuous and discrete action spaces.
+    """
     def __init__(self, name, num_ob_feat, num_ac, act_type='cont', init_lr = 0.005, init_beta = 1, init_gamma=0.01,
                        ac_scale=2., ob_scaler=ID_FN,  global_actor=None, global_step=None):
         with tf.variable_scope(name):
@@ -132,6 +136,10 @@ class Actor(object):
 
 
 class Critic(object):
+        """
+    A simple MLP critic network whose jobs is to estimate the discounted reward the agent is going to recieve in future given 
+    the current state.
+    """
     def __init__(self, name, num_ob_feat, init_lr=0.001, ob_scaler=ID_FN, global_critic=None):
         with tf.variable_scope(name):
             self.obs = tf.placeholder(shape=[None, num_ob_feat], dtype=tf.float32)

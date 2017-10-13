@@ -1,7 +1,6 @@
-from process import test_process
-import util as U
+from run_AC import test_process
 import argparse
-import os
+
 
 
 def main():
