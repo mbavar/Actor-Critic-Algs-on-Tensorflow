@@ -128,12 +128,11 @@ def test_process(env_id, random_seed, stack_frames, model_path, num_episodes, an
     framer = Framer(frame_num=stack_frames)
     ob_dim = env.observation_space.shape[0] * stack_frames
     if type(env.action_space) == gym.spaces.discrete.Discrete:
-            act_type = 'disc'
-            ac_dim, ac_scale = env.action_space.n, None
-        else:
-            act_type = 'cont'
-            ac_dim, ac_scale = env.action_space.shape[0], np.maximum(env.action_space.high, np.abs(env.action_space.low))
-    critic = pol.Critic(num_ob_feat=ob_dim, name='global_critic')
+        act_type = 'disc'
+        ac_dim, ac_scale = env.action_space.n, None
+    else:
+        act_type = 'cont'
+        ac_dim, ac_scale = env.action_space.shape[0], np.maximum(env.action_space.high, np.abs(env.action_space.low))
     actor = pol.Actor(name='global_actor', num_ob_feat=ob_dim, num_ac=ac_dim, act_type=act_type, ac_scale=ac_scale) 
     saver = tf.train.Saver()
 
@@ -143,10 +142,10 @@ def test_process(env_id, random_seed, stack_frames, model_path, num_episodes, an
         avg_rew = 0
         for i in range(num_episodes):
             path = rollout(env=env, sess= sess, policy=actor.act, max_path_length=MAX_PATH_LENGTH, framer=framer, render= animate)
-            rew = np.sum(rollout['rew'])
+            rew = np.sum(path['rews'])
             print("Iteration {}".format(i))
             print("Reward {}".format(rew))
-            print("Episode Length {}\n".format(len(path['rew'])))
+            print("Episode Length {}\n".format(len(path['rews'])))
             avg_rew += rew/float(num_episodes)
         print('Average reward over {} was {}'.format(num_episodes, avg_rew))
 
