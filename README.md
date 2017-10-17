@@ -24,7 +24,7 @@ The A3C algorithm was introduced by researchers from Google DeepMind [Mnih et al
 To run a basic version of our A3C implementation
 ```
 cd A3C
-sh runner.sh
+bash runner.sh
 ```
 The bash file `runner.sh` launches 3 processes on the localhost with one `ps` (parameter server) job and two workers. To increase the number of workers or servers, edit the appropriate variables in `runner.sh`.
 
