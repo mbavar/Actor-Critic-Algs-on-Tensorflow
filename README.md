@@ -28,4 +28,18 @@ bash runner.sh
 ```
 The bash file `runner.sh` launches 3 processes on the localhost with one `ps` (parameter server) job and two workers. To increase the number of workers or servers, edit the appropriate variables in `runner.sh`.
 
+### Tips for Training 
+
+Training an RL model is typically much more difficult than training neural networks in the supervised setting. To facilliate the training there are a few regularization tricks researchers use. There are a few of these that we've incroporated:
+
+* _Loss function regularizations_: our loss function, beside the main advantage policy-gradient term has two extra regularization terms. The first is a negative term corresponding to the entropy of policy log-probabilities and the second is a positive term corresponding to the KL distance of the new policy and the past policy. 
+
+* _Learning rate adjustment_: We use the KL distance between the new and the old policies' probabilities assigned to actions taken in a recent episode to adjust the learning rate. The goal is to keep the KL distance betrween updated policy and the previous policy within a certain desired range.
+
+In our experience, the desired KL parameter plays a crucial role in training and has to be often be adjusted depending on the environment. This can be done using the flag `--desired_kl`, e.g.
+```
+python run_AC.py --env CartPole-v0 --animate --desired_kl 0.002 
+```
+
+
 
