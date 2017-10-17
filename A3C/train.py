@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--worker_num",default=4, type=int) #worker jobs
     parser.add_argument("--ps_num", default=2, type=int)  #ps jobs
     parser.add_argument("--initport", default=4918, type=int)   #starting ports for cluster
+    parser.add_argument("--stdout_freq", default=20, type=int)
     parser.add_argument("--save_every", default=600, type=int)  #save frequency
     parser.add_argument("--outdir", default=os.path.join('tmp', 'logs'))  # file for the statistics of training
     parser.add_argument("--checkpoint_dir", default=os.path.join('tmp', 'checkpoints'))   #where to save checkpoint
@@ -43,7 +44,8 @@ def main():
     print("Starting {} {} with log at {}".format(args.job, args.task, LOG_FILE))
     process_fn(cluster=CLUSTER, task_id=args.task, job=args.job , logger=logger, 
                 env_id=args.env, animate=ANIMATE, random_seed=RANDOM_SEED, save_path=args.checkpoint_dir, stack_frames=args.frames,
-                save_every=args.save_every, run_mode=args.mode, desired_kl=args.desired_kl, checkpoint_basename=checkpoint_basename)
+                save_every=args.save_every, run_mode=args.mode, desired_kl=args.desired_kl, checkpoint_basename=checkpoint_basename,
+                stdout_freq= args.stdout_freq)
 
 
 

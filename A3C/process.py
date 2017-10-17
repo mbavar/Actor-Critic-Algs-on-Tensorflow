@@ -149,11 +149,12 @@ def test_process(env_id, random_seed, stack_frames, model_path, num_episodes, an
         print('Average reward over {} was {}'.format(num_episodes, avg_rew))
 
 
-def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=12321, gamma=0.98, look_ahead=40, 
-               stack_frames=3, animate=False, TB_log=False, save_every=600, run_mode='train', desired_kl=0.002,
-               checkpoint_basename='model'):
+def process_fn(cluster, task_id, job, env_id, logger, save_path, stdout_freq, random_seed=12321, gamma=0.98, 
+               look_ahead=40, stack_frames=3, animate=False, save_every=600, desired_kl=0.002, TB_log=False,
+               run_mode='train', checkpoint_basename='model',):
    
-    num_ps = len(cluster['ps'])
+    num_ps, num_workers = len(cluster['ps']), len(cluster['worker'])
+
     cluster = tf.train.ClusterSpec(cluster)
     server = tf.train.Server(cluster, job_name=job, task_index=task_id)
 
@@ -168,6 +169,8 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
         log_gamma_schedule = U.LinearSchedule(init_t=100, end_t=3000, init_val=-2, end_val=-8, update_every_t=100) #This is base 10
         log_beta_schedule = U.LinearSchedule(init_t=100, end_t=3000, init_val=0, end_val=-4, update_every_t=100) #This is base 10
         DEBUG = run_mode == "debug-full" or (run_mode == "debug-light" and is_chief)
+        if not is_chief:   #heuristic for output cleanness
+            stdout_freq = min(6, num_workers) * stdout_freq
         
         np.random.seed(random_seed)
         env.seed(random_seed)
@@ -271,7 +274,7 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, random_seed=123
                     print('Updated beta from %.4f to %.4f.' % (cur_beta, new_beta))
 
                 logger(i, act_loss=act_loss, worker_id=task_id, act_lr=act_lr, kl_dist=kl_dist, circ_loss=np.sqrt(cir_loss), avg_rew=avg_rew, 
-                ev_before=ev_before, ev_after=ev_after, print_tog= (i %20) == 0, avg_ent=avg_ent)
+                ev_before=ev_before, ev_after=ev_after, print_tog= (i%stdout_freq) == 0, avg_ent=avg_ent)
                 if i % 100 == 50:
                     logger.flush()
                 i += 1
