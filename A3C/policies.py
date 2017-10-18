@@ -131,7 +131,7 @@ class Actor(object):
         return sess.run([self.lr, self.beta, self.gamma])
 
     def printoo(self, obs, sess):
-        return sess.run([self.printer], feed_dict={self.ob: obs})
+        return sess.run(self.printer, feed_dict={self.ob: obs})
 
 
 class Critic(object):

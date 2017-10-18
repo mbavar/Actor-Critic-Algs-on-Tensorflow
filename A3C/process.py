@@ -169,8 +169,8 @@ def process_fn(cluster, task_id, job, env_id, logger, save_path, stdout_freq, ra
         log_gamma_schedule = U.LinearSchedule(init_t=100, end_t=3000, init_val=-2, end_val=-8, update_every_t=100) #This is base 10
         log_beta_schedule = U.LinearSchedule(init_t=100, end_t=3000, init_val=0, end_val=-4, update_every_t=100) #This is base 10
         DEBUG = run_mode == "debug-full" or (run_mode == "debug-light" and is_chief)
-        if not is_chief:   #heuristic for output cleanness
-            stdout_freq = min(6, num_workers) * stdout_freq
+        #if not is_chief:   #heuristic for output cleanness
+        #    stdout_freq = min(6, num_workers) * stdout_freq
         
         np.random.seed(random_seed)
         env.seed(random_seed)

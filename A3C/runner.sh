@@ -1,7 +1,7 @@
 #rm nohup.out
-env=LunarLander-v2
+env=Pendulum-v0
 workers=3
-ps=2
+ps=1
 for ((i=0; i<$ps; i++)); do
    python train.py ps $i --worker_num $workers  --env $env --ps_num $ps &
 done
