@@ -28,6 +28,14 @@ bash runner.sh
 ```
 The bash file `runner.sh` launches 3 processes on the localhost with one `ps` (parameter server) job and two workers. To increase the number of workers or servers, edit the appropriate variables in `runner.sh`.
 
+### Testing the models
+
+We automatically save the model once every 600 epoch. The frequency and the location of the saved models are controlled vis `--save_every` and `--checkpoint_dir` flags. You can test the checkpointed models using the test_model.py, e.g.
+```
+cd A3C
+python test_model.py Pendulum-v0 ../demos/model-Pendulum_a3c --num_episodes 30 --animate_not
+```
+
 ### Tips for Training 
 
 Training an RL model is typically much more difficult than training neural networks in the supervised setting. To facilliate the training there are a few regularization tricks researchers use. There are a few of these that we've incroporated:
