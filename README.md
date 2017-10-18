@@ -30,7 +30,7 @@ The bash file `runner.sh` launches 3 processes on the localhost with one `ps` (p
 
 ### Testing the models
 
-We automatically save the model once every 600 epoch. The frequency and the location of the saved models are controlled vis `--save_every` and `--checkpoint_dir` flags. You can test the checkpointed models using the test_model.py, e.g.
+The chief process has the responsibility of saving the model. This is done every 600 epochs by default. The frequency and the location of the checkpoints can be  controlled via `--save_every` and `--checkpoint_dir` flags. You can test the saved models using test_model.py , e.g.
 ```
 cd A3C
 python test_model.py Pendulum-v0 ../demos/model-Pendulum_a3c --num_episodes 30 --animate_not
