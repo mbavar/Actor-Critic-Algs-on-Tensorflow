@@ -23,7 +23,7 @@ parser.add_argument("--desired_kl", default=0.002, type=float)   #An important t
 
 class Framer(object):
     """
-    Ceates the augmentd obs features from the bare observations. Any obs fed to Actor & Critics nets must go through Framer. 
+    Creates the augmentd obs features from the bare observations. Any obs fed to Actor & Critics nets must go through Framer. 
     Currently it simply concatenates a few (frame_num) recent bare obs together. 
     So ob_dim = env.observation_space.shape[0] * frame_num
 
