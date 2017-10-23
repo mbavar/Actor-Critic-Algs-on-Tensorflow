@@ -82,7 +82,7 @@ class PathAdv(object):
 def rollout(env, sess, policy, framer, max_path_length=100, render=False):
     """
     Gather an episode of experiences by running the environment. Continues until env.done is True
-    or length of episode exceed max_path_length
+    or length of episode exceeds max_path_length
     """
     t = 0
     ob = env.reset()
