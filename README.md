@@ -1,4 +1,4 @@
-## A3C-vs-A2C-on-tensorflow
+## Actor-Critic Reinforcement Learning with Tensorflow
 
 The goal of this project is to provide high quality implementations of a few popular distributed Reinforcement Learning methods. In the first phase, we focus on the basic Actor-Critic and its more sophisticated variant A3C. We also test these implementations on a few OpenAI gym environments. 
 
