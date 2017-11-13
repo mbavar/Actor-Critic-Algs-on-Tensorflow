@@ -123,10 +123,10 @@ def train_actor(actor, sess, obs, advs, logps, acs, rolls):
     return loss
 
 def test_process(env_id, random_seed, stack_frames, model_path, num_episodes, animate=True):
-	"""
-	A minimalistic version of process_fn that is used instead when just testing the model.
-	Omits any use of cluster management, learning rate scheduling, etc. 
-	"""
+    """
+    A minimalistic version of process_fn that is used instead when just testing the model.
+    Omits any use of cluster management, learning rate scheduling, etc.
+    """
     env, MAX_PATH_LENGTH, _ = get_roll_params(env_id)
     framer = Framer(frame_num=stack_frames)
     ob_dim = env.observation_space.shape[0] * stack_frames
